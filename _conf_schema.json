@@ -1,0 +1,8 @@
+{
+  "apiUrl": {
+    "description": "随机图床API地址",
+    "type": "string",
+    "hint": "请输入随机图床的API地址，例如：https://example.com",
+    "default": ""
+  }
+}

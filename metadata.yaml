@@ -1,0 +1,13 @@
+name: suijitu
+version: 1.0.0
+description: 随机图床图片和视频发送插件
+author: ""
+display_name: 随机图床
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - telegram
+  - wecom
+  - lark
+  - discord
+astrbot_version: ">=4.16,<5"
