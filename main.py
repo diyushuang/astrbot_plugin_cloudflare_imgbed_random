@@ -301,8 +301,8 @@ class CloudflareImgbedRandomPlugin(Star):
             yield event.plain_result(f"命令处理失败: {str(e)}")
 
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, event: AstrMessageEvent, directory: Optional[str] = None, content_type: Optional[str] = None):
-        '''发送随机图片或视频
+    async def send_random_media(self, event: AstrMessageEvent, directory: str, content_type: str):
+        '''发送随机图片或视频。
 
         当用户请求随机图片或视频时使用此工具，例如：
         - "随机图"
@@ -312,8 +312,8 @@ class CloudflareImgbedRandomPlugin(Star):
         - "我想要一个随机视频"
 
         Args:
-            directory: 目录路径（可选），指定从哪个目录获取随机图片
-            content_type: 内容类型（可选），指定获取图片或视频，可选值：image, video
+            directory(string): 目录路径，指定从哪个目录获取随机图片
+            content_type(string): 内容类型，指定获取图片或视频，可选值：image, video
         '''
         try:
             if not self.config:
