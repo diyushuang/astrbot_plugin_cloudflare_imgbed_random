@@ -237,22 +237,15 @@ class CloudflareImgbedRandomPlugin(Star):
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, event, directory: str = None, content_type: str = None):
+    async def send_random_media(self, event: AstrMessageEvent, directory: str = None, content_type: str = None):
         '''发送随机图片或视频
-        
-        当用户请求随机图片或视频时使用此工具。
-        适用于用户提到"随机图"、"随机图片"、"随机视频"等关键词的情况。
-        
-        参数：
-        - directory: 目录路径（可选），指定从哪个目录获取随机图片
-        - content_type: 内容类型（可选），指定获取图片或视频，可选值：image, video
-        
-        返回：
-        - 成功时返回包含图片URL的结构化数据
-        - 失败时返回错误信息
+
+        Args:
+            directory(string): 目录路径（可选），指定从哪个目录获取随机图片
+            content_type(string): 内容类型（可选），指定获取图片或视频，可选值：image, video
         '''
         try:
-            if directory is None and event:
+            if directory is None:
                 message = None
                 if hasattr(event, 'message'):
                     message = event.message
@@ -270,12 +263,17 @@ class CloudflareImgbedRandomPlugin(Star):
             media_url = await self._get_random_media(directory, content_type)
             
             if media_url:
-                return f"已为您获取随机图片：{media_url}"
+                if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
+                elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv')):
+                    yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
+                else:
+                    yield event.plain_result(f"随机媒体发送成功: {media_url}")
             else:
-                return "获取随机媒体失败，请检查配置或稍后重试"
+                yield event.plain_result("获取随机媒体失败，请检查配置或稍后重试")
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] LLM工具调用失败: {str(e)}")
-            return f"获取随机媒体时出错：{str(e)}"
+            yield event.plain_result(f"获取随机媒体时出错：{str(e)}")
     
     async def terminate(self):
         '''插件卸载时调用''' 
