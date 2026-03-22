@@ -43,16 +43,13 @@ class CloudflareImgbedRandomPlugin(Star):
             timeout = config.get("timeout") if config else None
             retry_count = config.get("retryCount") if config else None
             
-            if not api_url:
-                api_url = "https://example.com"
-            if not api_token:
-                api_token = ""
-            if not default_dir:
-                default_dir = ""
-            if timeout is None or timeout <= 0:
-                timeout = 10
-            if retry_count is None or retry_count < 0:
-                retry_count = 3
+            api_url = api_url or "https://example.com"
+            api_token = api_token or ""
+            default_dir = default_dir or ""
+            # timeout需要大于0，因为超时时间不能为0或负数
+            timeout = timeout if timeout is not None and timeout > 0 else 10
+            # retry_count可以为0，表示不重试
+            retry_count = retry_count if retry_count is not None and retry_count >= 0 else 3
             
             self.config = {
                 "apiUrl": api_url,
@@ -79,7 +76,7 @@ class CloudflareImgbedRandomPlugin(Star):
         api_token = self.config.get('apiToken')
         default_dir = self.config.get('defaultDir')
         
-        if api_url == 'https://example.com' or api_url == 'http://example.com':
+        if api_url in ('https://example.com', 'http://example.com'):
             logger.warning("[cloudflare_imgbed_random] 检测到使用默认API地址，请在插件配置中设置正确的CloudFlare ImgBed API地址")
             return None
         
@@ -87,27 +84,21 @@ class CloudflareImgbedRandomPlugin(Star):
             logger.error("[cloudflare_imgbed_random] API地址为空，请检查配置")
             return None
         
-        # 确定使用的目录
         target_dir = directory or default_dir
         
-        # 构建请求参数
         params = {}
         if target_dir:
             params['dir'] = target_dir
         
-        # 构建完整URL
         if params:
-            if '?' in api_url:
-                api_url = f"{api_url}&{urlencode(params)}"
-            else:
-                api_url = f"{api_url}?{urlencode(params)}"
+            separator = '&' if '?' in api_url else '?'
+            api_url = f"{api_url}{separator}{urlencode(params)}"
         
         retry_count = self.config.get('retryCount', 3)
         timeout = self.config.get('timeout', 10)
         
         for i in range(retry_count):
             try:
-                # 构建请求头
                 headers = {}
                 if api_token:
                     headers['Authorization'] = api_token
@@ -122,7 +113,6 @@ class CloudflareImgbedRandomPlugin(Star):
                         if response.status == 200:
                             content_type = response.headers.get('Content-Type', '')
                             
-                            # 读取响应文本
                             text = None
                             try:
                                 text = await response.text()
@@ -130,40 +120,40 @@ class CloudflareImgbedRandomPlugin(Star):
                                 logger.error(f"[cloudflare_imgbed_random] 读取响应文本失败: {str(e)}")
                                 continue
                             
-                            # 尝试解析JSON
                             media_url = None
-                            is_json = False
                             try:
+                                # 尝试解析JSON响应
                                 data = json.loads(text)
-                                is_json = True
-                            except Exception:
-                                pass
-                            
-                            if is_json:
+                                
+                                # 从JSON中提取URL
                                 if isinstance(data, dict):
                                     if 'url' in data:
                                         media_url = data.get('url', '')
                                     elif 'data' in data and isinstance(data['data'], dict):
                                         media_url = data['data'].get('url', '')
                                 
+                                # 处理相对路径
                                 if media_url and media_url.startswith('/'):
                                     parsed_url = urlparse(api_url)
                                     base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
                                     media_url = base_url + media_url
                                 
+                                # 如果未找到URL，使用响应URL
                                 if not media_url:
                                     media_url = str(response.url)
-                            elif 'image/' in content_type or 'video/' in content_type:
-                                media_url = str(response.url)
-                            else:
-                                media_url = text.strip() if text else str(response.url)
+                            except Exception:
+                                # 非JSON响应处理
+                                if 'image/' in content_type or 'video/' in content_type:
+                                    media_url = str(response.url)
+                                else:
+                                    media_url = text.strip() if text else str(response.url)
                             
                             if media_url:
                                 return media_url
                         else:
                             logger.warning(f"[cloudflare_imgbed_random] 获取随机媒体失败，状态码: {response.status}")
             except asyncio.TimeoutError:
-                logger.warning(f"[cloudflare_imgbed_random] 获取随机媒体超时")
+                logger.warning("[cloudflare_imgbed_random] 获取随机媒体超时")
             except Exception as e:
                 logger.error(f"[cloudflare_imgbed_random] 获取随机媒体失败: {str(e)}")
             
@@ -171,6 +161,17 @@ class CloudflareImgbedRandomPlugin(Star):
                 await asyncio.sleep(1)
         
         logger.error("[cloudflare_imgbed_random] 所有重试失败，无法获取随机媒体")
+        return None
+    
+    def _extract_directory(self, message):
+        '''从消息中提取目录参数''' 
+        if not message:
+            return None
+        
+        if message.startswith('/随机图') and len(message) > 4:
+            return message[4:].strip()
+        elif message.startswith('随机图') and len(message) > 3:
+            return message[3:].strip()
         return None
     
     @filter.command("随机图", alias={"/随机图", "imgbed", "random", "随机图片", "randomimg"})
@@ -184,9 +185,7 @@ class CloudflareImgbedRandomPlugin(Star):
         /随机图 目录路径 - 从指定目录获取随机图片
         ''' 
         try:
-            # 解析命令参数
             message = None
-            # 尝试不同的方式获取消息内容
             if hasattr(event, 'message'):
                 message = event.message
             elif hasattr(event, 'get_message'):
@@ -194,19 +193,9 @@ class CloudflareImgbedRandomPlugin(Star):
             elif hasattr(event, 'raw_message'):
                 message = event.raw_message
             
-            directory = None
-            
-            # 提取目录参数
-            if message:
-                # 处理 /随机图 格式
-                if message.startswith('/随机图'):
-                    if len(message) > 4:
-                        directory = message[4:].strip()
-                        logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
-                # 处理 随机图 格式
-                elif message.startswith('随机图') and len(message) > 3:
-                    directory = message[3:].strip()
-                    logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
+            directory = self._extract_directory(message)
+            if directory:
+                logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
             
             media_url = await self._get_random_media(directory)
             
@@ -215,17 +204,9 @@ class CloudflareImgbedRandomPlugin(Star):
                 return
             
             if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                chain = [
-                    Plain("随机图片发送成功"),
-                    Image.fromURL(media_url)
-                ]
-                yield event.chain_result(chain)
+                yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
             elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv')):
-                chain = [
-                    Plain("随机视频发送成功"),
-                    Video.fromURL(media_url)
-                ]
-                yield event.chain_result(chain)
+                yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
             else:
                 yield event.plain_result(f"随机媒体发送成功: {media_url}")
         except Exception as e:
@@ -247,9 +228,7 @@ class CloudflareImgbedRandomPlugin(Star):
         - 失败时返回错误信息
         '''
         try:
-            # 尝试从事件中提取目录参数（如果没有直接传入）
             if directory is None and event:
-                # 尝试不同的方式获取消息内容
                 message = None
                 if hasattr(event, 'message'):
                     message = event.message
@@ -258,38 +237,19 @@ class CloudflareImgbedRandomPlugin(Star):
                 elif hasattr(event, 'raw_message'):
                     message = event.raw_message
                 
-                # 从消息中提取目录参数
-                if message:
-                    # 处理 /随机图 格式
-                    if message.startswith('/随机图') and len(message) > 4:
-                        directory = message[4:].strip()
-                        logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}")
-                    # 处理 随机图 格式
-                    elif message.startswith('随机图') and len(message) > 3:
-                        directory = message[3:].strip()
-                        logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}")
+                directory = self._extract_directory(message)
+                if directory:
+                    logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}")
             
             media_url = await self._get_random_media(directory)
             
             if media_url:
-                return {
-                    "success": True,
-                    "media_url": media_url,
-                    "message": "随机媒体发送成功"
-                }
+                return {"success": True, "media_url": media_url, "message": "随机媒体发送成功"}
             else:
-                return {
-                    "success": False,
-                    "media_url": None,
-                    "message": "获取随机媒体失败"
-                }
+                return {"success": False, "media_url": None, "message": "获取随机媒体失败"}
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] LLM工具调用失败: {str(e)}")
-            return {
-                "success": False,
-                "media_url": None,
-                "message": f"LLM工具调用失败: {str(e)}"
-            }
+            return {"success": False, "media_url": None, "message": f"LLM工具调用失败: {str(e)}"}
     
     async def terminate(self):
         '''插件卸载时调用''' 
