@@ -169,6 +169,16 @@ class SuijituPlugin(Star):
         logger.info(f"获取到的api_url: {api_url}")
         logger.info(f"api_url类型: {type(api_url)}")
         
+        # 检查是否使用默认API地址
+        if api_url == 'https://example.com' or api_url == 'http://example.com':
+            logger.warning("检测到使用默认API地址，这可能不是有效的随机图API")
+            logger.warning("请在插件配置中设置正确的随机图床API地址")
+            logger.error("========== API地址为默认值 ==========")
+            logger.error("API地址为默认值，请在插件配置中设置正确的随机图床API地址")
+            logger.error("配置路径：AstrBot -> 插件管理 -> 随机图床 -> 配置")
+            logger.error("========== 获取随机媒体失败 ==========")
+            return None
+        
         if not api_url:
             logger.error("========== API地址为空 ==========")
             logger.error("API地址为空，请检查配置")
