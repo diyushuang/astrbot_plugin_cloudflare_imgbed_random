@@ -168,13 +168,22 @@ class SuijituPlugin(Star):
                             content_type = response.headers.get('Content-Type', '')
                             logger.info(f"响应内容类型: {content_type}")
                             
+                            # 先读取响应文本
+                            text = None
+                            try:
+                                text = await response.text()
+                                logger.info(f"响应文本: {text}")
+                            except Exception as e:
+                                logger.error(f"读取响应文本失败: {str(e)}")
+                                
                             # 检查响应类型并处理
-                            if 'application/json' in content_type:
+                            if 'application/json' in content_type or (content_type == 'text/plain' and text and text.strip().startswith('{')):
                                 logger.info("检测到JSON格式响应")
                                 # JSON格式响应，解析获取url
                                 try:
                                     logger.info("开始解析JSON...")
-                                    data = await response.json()
+                                    import json
+                                    data = json.loads(text)
                                     logger.info(f"JSON数据: {data}")
                                     
                                     # 处理不同的JSON格式
@@ -219,9 +228,8 @@ class SuijituPlugin(Star):
                                 logger.info(f"检测到其他格式响应: {content_type}")
                                 # 其他格式，尝试解析文本
                                 try:
-                                    logger.info("开始解析文本...")
-                                    text = await response.text()
-                                    logger.info(f"响应文本: {text}")
+                                    if text is None:
+                                        text = await response.text()
                                     media_url = text.strip()
                                     logger.info(f"从文本解析的URL: {media_url}")
                                     if not media_url:
