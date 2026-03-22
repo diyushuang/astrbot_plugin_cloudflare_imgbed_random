@@ -185,12 +185,9 @@ class CloudflareImgbedRandomPlugin(Star):
             return None, None
         
         # 检查是否是视频命令
-        is_video = False
         if message.startswith('/随机视频') and len(message) > 5:
-            is_video = True
             return message[5:].strip(), 'video'
         elif message.startswith('随机视频') and len(message) > 4:
-            is_video = True
             return message[4:].strip(), 'video'
         elif message.startswith('/随机图') and len(message) > 4:
             return message[4:].strip(), 'image'
