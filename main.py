@@ -76,12 +76,15 @@ class SuijituPlugin(Star):
             return self.config
         except Exception as e:
             logger.error(f"加载配置失败: {str(e)}")
+            logger.error(f"异常类型: {type(e)}")
+            logger.error(f"异常详细信息: {repr(e)}")
             # 回退到默认配置
             self.config = {
                 "apiUrl": "https://example.com",
                 "timeout": 10,
                 "retryCount": 3
             }
+            logger.info(f"使用默认配置: {self.config}")
             return self.config
     
     async def _get_random_media(self):
