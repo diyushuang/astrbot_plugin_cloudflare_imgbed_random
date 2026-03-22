@@ -71,6 +71,35 @@ class CloudflareImgbedRandomPlugin(Star):
                 "retryCount": 3
             }
     
+    def _get_message_text(self, event):
+        '''从事件中提取消息文本''' 
+        try:
+            # 尝试不同的方式获取消息文本
+            if hasattr(event, 'message_str') and event.message_str:
+                return event.message_str
+            elif hasattr(event, 'message') and event.message:
+                msg = event.message
+                if isinstance(msg, str):
+                    return msg
+                # 如果是消息链，尝试提取文本
+                if hasattr(msg, 'chain'):
+                    texts = []
+                    for comp in msg.chain:
+                        if hasattr(comp, 'text'):
+                            texts.append(comp.text)
+                    return ' '.join(texts)
+            elif hasattr(event, 'get_message'):
+                msg = event.get_message()
+                if isinstance(msg, str):
+                    return msg
+            elif hasattr(event, 'raw_message'):
+                raw = event.raw_message
+                if isinstance(raw, str):
+                    return raw
+        except Exception as e:
+            logger.error(f"[cloudflare_imgbed_random] 提取消息文本失败: {str(e)}")
+        return None
+    
     async def _get_random_media(self, directory=None, content_type=None):
         if not self.config:
             await self._load_config()
@@ -181,8 +210,10 @@ class CloudflareImgbedRandomPlugin(Star):
     
     def _extract_directory(self, message):
         '''从消息中提取目录参数''' 
-        if not message:
+        if not message or not isinstance(message, str):
             return None, None
+        
+        message = message.strip()
         
         # 检查是否是视频命令
         if message.startswith('/随机视频') and len(message) > 5:
@@ -208,13 +239,8 @@ class CloudflareImgbedRandomPlugin(Star):
         注意：不带斜杠的命令（随机图、随机视频）由LLM识别并调用工具
         ''' 
         try:
-            message = None
-            if hasattr(event, 'message'):
-                message = event.message
-            elif hasattr(event, 'get_message'):
-                message = event.get_message()
-            elif hasattr(event, 'raw_message'):
-                message = event.raw_message
+            # 使用新方法获取消息文本
+            message = self._get_message_text(event)
             
             directory, content_type = self._extract_directory(message)
             if directory:
@@ -245,14 +271,9 @@ class CloudflareImgbedRandomPlugin(Star):
             content_type(string): 内容类型（可选），指定获取图片或视频，可选值：image, video
         '''
         try:
+            # 如果directory为None，尝试从消息中提取
             if directory is None:
-                message = None
-                if hasattr(event, 'message'):
-                    message = event.message
-                elif hasattr(event, 'get_message'):
-                    message = event.get_message()
-                elif hasattr(event, 'raw_message'):
-                    message = event.raw_message
+                message = self._get_message_text(event)
                 
                 directory, extracted_content_type = self._extract_directory(message)
                 if extracted_content_type:
