@@ -13,7 +13,6 @@ class CloudflareImgbedRandomPlugin(Star):
         self.name = 'cloudflare_imgbed_random'
         self.description = '从CloudFlare ImgBed图床中获取随机图片'
         self.version = '1.0.0'
-        self.astrbot_config = config
         self.config = {}
         logger.info(f"[cloudflare_imgbed_random] 插件初始化完成")
     
@@ -44,7 +43,7 @@ class CloudflareImgbedRandomPlugin(Star):
     async def _load_config(self):
         '''加载插件配置''' 
         try:
-            config = self.astrbot_config
+            config = self.context.get_config()
             logger.debug(f"[cloudflare_imgbed_random] 开始加载配置，配置对象: {config}")
             
             imgbed_domain = config.get("imgbedDomain") if config else None
