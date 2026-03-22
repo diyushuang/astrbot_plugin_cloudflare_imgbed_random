@@ -195,20 +195,17 @@ class CloudflareImgbedRandomPlugin(Star):
             return message[3:].strip(), 'image'
         return None, None
     
-    @filter.command("随机图", alias={"/随机图", "imgbed", "random", "随机图片", "randomimg"})
-    @filter.command("随机视频", alias={"/随机视频", "randomvideo", "随机影片"})
+    @filter.command("/随机图", alias={"/随机视频"})
     async def handle_random_media(self, event: AstrMessageEvent):
         '''发送随机图片或视频
         
         用法：
-        随机图 - 从默认目录获取随机图片
-        随机图 目录路径 - 从指定目录获取随机图片
         /随机图 - 从默认目录获取随机图片
         /随机图 目录路径 - 从指定目录获取随机图片
-        随机视频 - 从默认目录获取随机视频
-        随机视频 目录路径 - 从指定目录获取随机视频
         /随机视频 - 从默认目录获取随机视频
         /随机视频 目录路径 - 从指定目录获取随机视频
+        
+        注意：不带斜杠的命令（随机图、随机视频）由LLM识别并调用工具
         ''' 
         try:
             message = None
