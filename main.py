@@ -5,6 +5,7 @@ from astrbot.api.message_components import Plain, Image, Video
 import asyncio
 import aiohttp
 from urllib.parse import urlparse
+import json
 
 class SuijituPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -14,330 +15,154 @@ class SuijituPlugin(Star):
         self.version = '1.0.0'
         self.astrbot_config = config
         self.config = {}
-        logger.info("========== 插件初始化 ==========")
-        logger.info(f"插件名称: {self.name}")
-        logger.info(f"插件版本: {self.version}")
-        logger.info(f"插件描述: {self.description}")
-        logger.info(f"传入的配置对象: {config}")
-        logger.info(f"配置对象类型: {type(config)}")
-        logger.info("========== 插件初始化完成 ==========")
+        logger.info(f"[suijitu] 插件初始化完成")
     
     async def on_load(self):
         '''插件加载时调用''' 
-        logger.info("========== 开始加载随机图床插件 ==========")
-        logger.info(f"插件名称: {self.name}")
-        logger.info(f"插件版本: {self.version}")
-        logger.info(f"插件描述: {self.description}")
-        logger.info(f"插件上下文: {self.context}")
-        logger.info(f"插件上下文类型: {type(self.context)}")
-        
         try:
-            logger.info("开始加载配置...")
             await self._load_config()
-            logger.info("配置加载完成")
-            logger.info("随机图床插件已加载")
-            logger.info("========== 随机图床插件加载完成 ==========")
+            logger.info(f"[suijitu] 插件加载完成")
         except Exception as e:
-            logger.error("========== 插件加载失败 ==========")
-            logger.error(f"on_load方法执行失败: {str(e)}")
-            logger.error(f"异常类型: {type(e)}")
-            logger.error(f"异常详细信息: {repr(e)}")
-            logger.error(f"异常堆栈信息:", exc_info=True)
-            # 设置默认配置
-            logger.info("设置默认配置...")
+            logger.error(f"[suijitu] 插件加载失败: {str(e)}")
             self.config = {
                 "apiUrl": "https://example.com",
                 "timeout": 10,
                 "retryCount": 3
             }
-            logger.info(f"默认配置: {self.config}")
-            logger.info("========== 使用默认配置继续运行 ==========")
     
     async def _load_config(self):
-        logger.info("========== 开始加载配置 ==========")
         try:
-            logger.info("从插件配置对象获取配置...")
-            logger.info(f"self.astrbot_config: {self.astrbot_config}")
-            logger.info(f"self.astrbot_config类型: {type(self.astrbot_config)}")
-            
             config = self.astrbot_config
-            
-            logger.info(f"配置内容: {dict(config) if config else {}}")
-            logger.info(f"配置键: {list(config.keys()) if config else []}")
-            
             api_url = config.get("apiUrl") if config else None
             timeout = config.get("timeout") if config else None
             retry_count = config.get("retryCount") if config else None
             
-            logger.info(f"配置值 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
-            
             if not api_url:
-                logger.warning("api_url为空，使用默认值")
                 api_url = "https://example.com"
             if timeout is None or timeout <= 0:
-                logger.warning(f"timeout无效: {timeout}，使用默认值")
                 timeout = 10
             if retry_count is None or retry_count < 0:
-                logger.warning(f"retry_count无效: {retry_count}，使用默认值")
                 retry_count = 3
-            
-            logger.info(f"配置值验证完成 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
             
             self.config = {
                 "apiUrl": api_url,
                 "timeout": timeout,
                 "retryCount": retry_count
             }
-            
-            logger.info(f"最终配置: {self.config}")
-            logger.info("========== 配置加载完成 ==========")
-            return self.config
         except Exception as e:
-            logger.error("========== 配置加载失败 ==========")
-            logger.error(f"加载配置失败: {str(e)}")
-            logger.error(f"异常类型: {type(e)}")
-            logger.error(f"异常详细信息: {repr(e)}")
-            logger.error(f"异常堆栈信息:", exc_info=True)
+            logger.error(f"[suijitu] 加载配置失败: {str(e)}")
             self.config = {
                 "apiUrl": "https://example.com",
                 "timeout": 10,
                 "retryCount": 3
             }
-            logger.info(f"默认配置: {self.config}")
-            logger.info("========== 使用默认配置继续运行 ==========")
-            return self.config
     
     async def _get_random_media(self):
-        logger.info("========== 开始获取随机媒体 ==========")
-        logger.info(f"当前配置对象: {self.config}")
-        logger.info(f"配置类型: {type(self.config)}")
-        
-        # 如果配置为空，尝试加载配置
         if not self.config:
-            logger.warning("配置为空，尝试加载配置...")
-            try:
-                await self._load_config()
-                logger.info(f"配置加载后的self.config: {self.config}")
-            except Exception as e:
-                logger.error(f"加载配置失败: {str(e)}")
-                logger.error(f"异常类型: {type(e)}")
-                logger.error(f"异常详细信息: {repr(e)}")
-                logger.error(f"异常堆栈信息:", exc_info=True)
+            await self._load_config()
         
         api_url = self.config.get('apiUrl')
-        logger.info(f"获取到的api_url: {api_url}")
-        logger.info(f"api_url类型: {type(api_url)}")
         
-        # 检查是否使用默认API地址
         if api_url == 'https://example.com' or api_url == 'http://example.com':
-            logger.warning("检测到使用默认API地址，这可能不是有效的随机图API")
-            logger.warning("请在插件配置中设置正确的随机图床API地址")
-            logger.error("========== API地址为默认值 ==========")
-            logger.error("API地址为默认值，请在插件配置中设置正确的随机图床API地址")
-            logger.error("配置路径：AstrBot -> 插件管理 -> 随机图床 -> 配置")
-            logger.error("========== 获取随机媒体失败 ==========")
+            logger.warning("[suijitu] 检测到使用默认API地址，请在插件配置中设置正确的随机图床API地址")
             return None
         
         if not api_url:
-            logger.error("========== API地址为空 ==========")
-            logger.error("API地址为空，请检查配置")
-            logger.error(f"完整的self.config内容: {self.config}")
-            logger.error("========== 获取随机媒体失败 ==========")
+            logger.error("[suijitu] API地址为空，请检查配置")
             return None
         
         retry_count = self.config.get('retryCount', 3)
         timeout = self.config.get('timeout', 10)
         
-        logger.info(f"开始获取随机媒体，API地址: {api_url}, 重试次数: {retry_count}, 超时时间: {timeout}")
-        
         for i in range(retry_count):
-            logger.info(f"========== 开始第 {i+1}/{retry_count} 次尝试 ==========")
             try:
-                logger.info(f"创建aiohttp会话...")
                 async with aiohttp.ClientSession() as session:
-                    logger.info(f"发送GET请求到: {api_url}")
                     async with session.get(
                         api_url, 
                         allow_redirects=True,
                         timeout=aiohttp.ClientTimeout(total=timeout)
                     ) as response:
-                        logger.info(f"收到响应，状态码: {response.status}")
-                        logger.info(f"响应头: {dict(response.headers)}")
-                        
                         if response.status == 200:
                             content_type = response.headers.get('Content-Type', '')
-                            logger.info(f"响应内容类型: {content_type}")
                             
-                            # 先读取响应文本
+                            # 读取响应文本
                             text = None
                             try:
                                 text = await response.text()
-                                logger.info(f"响应文本: {text}")
                             except Exception as e:
-                                logger.error(f"读取响应文本失败: {str(e)}")
-                                
-                            # 检查响应类型并处理
-                            is_json_response = False
+                                logger.error(f"[suijitu] 读取响应文本失败: {str(e)}")
+                                continue
+                            
+                            # 尝试解析JSON
+                            media_url = None
+                            is_json = False
                             try:
-                                # 尝试解析JSON
-                                import json
                                 data = json.loads(text)
-                                is_json_response = True
-                                logger.info("检测到JSON格式响应")
+                                is_json = True
                             except Exception:
                                 pass
                             
-                            if is_json_response:
-                                # JSON格式响应，解析获取url
-                                try:
-                                    import json
-                                    data = json.loads(text)
-                                    logger.info(f"JSON数据: {data}")
-                                    
-                                    # 处理不同的JSON格式
-                                    # 格式1: {"url": "/file/..."}
-                                    # 格式2: {"data": {"url": "/file/..."}}
-                                    media_url = None
-                                    if isinstance(data, dict):
-                                        # 尝试获取url字段
-                                        if 'url' in data:
-                                            media_url = data.get('url', '')
-                                        # 尝试获取data.url字段
-                                        elif 'data' in data and isinstance(data['data'], dict):
-                                            media_url = data['data'].get('url', '')
-                                    
-                                    logger.info(f"从JSON获取的url: {media_url}")
-                                    
-                                    # 如果url是相对路径，需要拼接域名
-                                    if media_url and media_url.startswith('/'):
-                                        # 从api_url中提取域名
-                                        parsed_url = urlparse(api_url)
-                                        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-                                        media_url = base_url + media_url
-                                        logger.info(f"拼接后的完整URL: {media_url}")
-                                    
-                                    if not media_url:
-                                        logger.warning("JSON中的url为空，使用响应URL")
-                                        media_url = str(response.url)
-                                    logger.info(f"从JSON解析获取URL: {media_url}")
-                                except Exception as e:
-                                    logger.error(f"解析JSON失败: {str(e)}")
-                                    logger.error(f"异常类型: {type(e)}")
-                                    logger.error(f"异常详细信息: {repr(e)}")
-                                    logger.error(f"异常堆栈信息:", exc_info=True)
-                                    logger.info("使用响应URL作为回退")
+                            if is_json:
+                                if isinstance(data, dict):
+                                    if 'url' in data:
+                                        media_url = data.get('url', '')
+                                    elif 'data' in data and isinstance(data['data'], dict):
+                                        media_url = data['data'].get('url', '')
+                                
+                                if media_url and media_url.startswith('/'):
+                                    parsed_url = urlparse(api_url)
+                                    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                                    media_url = base_url + media_url
+                                
+                                if not media_url:
                                     media_url = str(response.url)
                             elif 'image/' in content_type or 'video/' in content_type:
-                                logger.info(f"检测到媒体文件响应: {content_type}")
-                                # 直接返回图片或视频
                                 media_url = str(response.url)
-                                logger.info(f"直接使用响应URL: {media_url}")
                             else:
-                                logger.info(f"检测到其他格式响应: {content_type}")
-                                # 其他格式，尝试解析文本
-                                try:
-                                    if text is None:
-                                        text = await response.text()
-                                    media_url = text.strip()
-                                    logger.info(f"从文本解析的URL: {media_url}")
-                                    if not media_url:
-                                        logger.warning("文本为空，使用响应URL")
-                                        media_url = str(response.url)
-                                    logger.info(f"从文本解析获取URL: {media_url}")
-                                except Exception as e:
-                                    logger.error(f"解析文本失败: {str(e)}")
-                                    logger.error(f"异常类型: {type(e)}")
-                                    logger.error(f"异常详细信息: {repr(e)}")
-                                    logger.error(f"异常堆栈信息:", exc_info=True)
-                                    logger.info("使用响应URL作为回退")
-                                    media_url = str(response.url)
+                                media_url = text.strip() if text else str(response.url)
                             
-                            logger.info(f"========== 获取随机媒体成功 ==========")
-                            logger.info(f"媒体URL: {media_url}")
-                            logger.info(f"媒体URL类型: {type(media_url)}")
-                            return media_url
+                            if media_url:
+                                return media_url
                         else:
-                            logger.warning(f"========== 获取随机媒体失败 ==========")
-                            logger.warning(f"获取随机媒体失败，状态码: {response.status}, 尝试 {i+1}/{retry_count}")
-                            logger.warning(f"响应内容: {await response.text()}")
+                            logger.warning(f"[suijitu] 获取随机媒体失败，状态码: {response.status}")
             except asyncio.TimeoutError:
-                logger.warning(f"========== 获取随机媒体超时 ==========")
-                logger.warning(f"获取随机媒体超时，尝试 {i+1}/{retry_count}")
+                logger.warning(f"[suijitu] 获取随机媒体超时")
             except Exception as e:
-                logger.error(f"========== 获取随机媒体异常 ==========")
-                logger.error(f"获取随机媒体失败: {str(e)}, 尝试 {i+1}/{retry_count}")
-                logger.error(f"异常类型: {type(e)}")
-                logger.error(f"异常详细信息: {repr(e)}")
-                logger.error(f"异常堆栈信息:", exc_info=True)
+                logger.error(f"[suijitu] 获取随机媒体失败: {str(e)}")
             
-            # 重试间隔
             if i < retry_count - 1:
-                logger.info(f"等待1秒后重试...")
                 await asyncio.sleep(1)
         
-        logger.error("========== 所有重试失败 ==========")
-        logger.error(f"所有重试失败，无法获取随机媒体")
-        logger.error(f"API地址: {api_url}")
-        logger.error(f"重试次数: {retry_count}")
-        logger.error(f"超时时间: {timeout}")
+        logger.error("[suijitu] 所有重试失败，无法获取随机媒体")
         return None
     
     @filter.command("随机图", alias={"suijitu", "random", "随机图片", "randomimg"})
     async def handle_random_media(self, event: AstrMessageEvent):
         '''发送随机图片或视频''' 
-        logger.info("========== 命令处理开始 ==========")
-        logger.info(f"命令: 随机图")
-        logger.info(f"事件类型: {type(event)}")
-        logger.info(f"事件内容: {event}")
-        
         try:
-            logger.info("开始获取随机媒体...")
             media_url = await self._get_random_media()
             
             if not media_url:
-                logger.error("获取随机媒体失败")
-                logger.info("发送失败消息...")
                 yield event.plain_result("获取随机媒体失败")
-                logger.info("========== 命令处理结束 ==========")
                 return
             
-            logger.info(f"获取到媒体URL: {media_url}")
-            logger.info("开始构建消息链...")
-            
-            # 直接使用AstrBot的消息发送API发送消息
             if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                logger.info("检测到图片文件")
                 chain = [
                     Plain("随机图片发送成功"),
                     Image.fromURL(media_url)
                 ]
-                logger.info(f"消息链: {chain}")
-                logger.info("发送图片消息...")
                 yield event.chain_result(chain)
             elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv')):
-                logger.info("检测到视频文件")
                 chain = [
                     Plain("随机视频发送成功"),
                     Video.fromURL(media_url)
                 ]
-                logger.info(f"消息链: {chain}")
-                logger.info("发送视频消息...")
                 yield event.chain_result(chain)
             else:
-                logger.info("检测到其他格式文件")
-                logger.info("发送纯文本消息...")
                 yield event.plain_result(f"随机媒体发送成功: {media_url}")
-            
-            logger.info("========== 命令处理成功 ==========")
         except Exception as e:
-            logger.error("========== 命令处理失败 ==========")
-            logger.error(f"命令处理失败: {str(e)}")
-            logger.error(f"异常类型: {type(e)}")
-            logger.error(f"异常详细信息: {repr(e)}")
-            logger.error(f"异常堆栈信息:", exc_info=True)
-            logger.info("发送错误消息...")
+            logger.error(f"[suijitu] 命令处理失败: {str(e)}")
             yield event.plain_result(f"命令处理失败: {str(e)}")
-            logger.info("========== 命令处理结束 ==========")
     
     @filter.llm_tool(name="sendRandomMedia")
     async def send_random_media(self, event: AstrMessageEvent):
@@ -350,52 +175,29 @@ class SuijituPlugin(Star):
         - media_url: 媒体URL（成功时）
         - message: 结果消息
         '''
-        logger.info("========== LLM工具调用开始 ==========")
-        logger.info(f"工具名称: sendRandomMedia")
-        logger.info(f"事件类型: {type(event)}")
-        logger.info(f"事件内容: {event}")
-        
         try:
-            logger.info("开始获取随机媒体...")
             media_url = await self._get_random_media()
             
             if media_url:
-                logger.info(f"获取随机媒体成功: {media_url}")
-                result = {
+                return {
                     "success": True,
                     "media_url": media_url,
                     "message": "随机媒体发送成功"
                 }
-                logger.info(f"返回结果: {result}")
-                logger.info("========== LLM工具调用成功 ==========")
-                return result
             else:
-                logger.error("获取随机媒体失败")
-                result = {
+                return {
                     "success": False,
                     "media_url": None,
                     "message": "获取随机媒体失败"
                 }
-                logger.info(f"返回结果: {result}")
-                logger.info("========== LLM工具调用结束 ==========")
-                return result
         except Exception as e:
-            logger.error("========== LLM工具调用失败 ==========")
-            logger.error(f"LLM工具调用失败: {str(e)}")
-            logger.error(f"异常类型: {type(e)}")
-            logger.error(f"异常详细信息: {repr(e)}")
-            logger.error(f"异常堆栈信息:", exc_info=True)
-            result = {
+            logger.error(f"[suijitu] LLM工具调用失败: {str(e)}")
+            return {
                 "success": False,
                 "media_url": None,
                 "message": f"LLM工具调用失败: {str(e)}"
             }
-            logger.info(f"返回结果: {result}")
-            logger.info("========== LLM工具调用结束 ==========")
-            return result
     
     async def terminate(self):
         '''插件卸载时调用''' 
-        logger.info("========== 开始卸载随机图床插件 ==========")
-        logger.info("随机图床插件已卸载")
-        logger.info("========== 随机图床插件卸载完成 ==========")
+        logger.info("[suijitu] 插件已卸载")
