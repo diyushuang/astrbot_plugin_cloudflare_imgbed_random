@@ -1,22 +1,25 @@
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
-from astrbot.api import logger
+from astrbot.api import logger, AstrBotConfig
 from astrbot.api.message_components import Plain, Image, Video
 import asyncio
 import aiohttp
 from urllib.parse import urlparse
 
 class SuijituPlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.name = 'suijitu'
         self.description = '随机图床图片和视频发送插件'
         self.version = '1.0.0'
+        self.astrbot_config = config
         self.config = {}
         logger.info("========== 插件初始化 ==========")
         logger.info(f"插件名称: {self.name}")
         logger.info(f"插件版本: {self.version}")
         logger.info(f"插件描述: {self.description}")
+        logger.info(f"传入的配置对象: {config}")
+        logger.info(f"配置对象类型: {type(config)}")
         logger.info("========== 插件初始化完成 ==========")
     
     async def on_load(self):
@@ -53,79 +56,21 @@ class SuijituPlugin(Star):
     async def _load_config(self):
         logger.info("========== 开始加载配置 ==========")
         try:
-            # 首先从AstrBot配置中获取
-            logger.info("尝试从AstrBot获取配置...")
-            logger.info(f"self.context类型: {type(self.context)}")
-            logger.info(f"self.context: {self.context}")
+            logger.info("从插件配置对象获取配置...")
+            logger.info(f"self.astrbot_config: {self.astrbot_config}")
+            logger.info(f"self.astrbot_config类型: {type(self.astrbot_config)}")
             
-            config = self.context.get_config() or {}
+            config = self.astrbot_config
             
-            logger.info(f"从AstrBot获取的配置: {config}")
-            logger.info(f"配置类型: {type(config)}")
-            logger.info(f"配置是否为空: {not config}")
+            logger.info(f"配置内容: {dict(config) if config else {}}")
             logger.info(f"配置键: {list(config.keys()) if config else []}")
             
-            # 如果config是AstrBotConfig对象，尝试获取其内部配置
-            if hasattr(config, '_config'):
-                logger.info(f"检测到AstrBotConfig对象，内部配置: {config._config}")
-                config = config._config
-            elif hasattr(config, 'data'):
-                logger.info(f"检测到data属性，data: {config.data}")
-                config = config.data
+            api_url = config.get("apiUrl") if config else None
+            timeout = config.get("timeout") if config else None
+            retry_count = config.get("retryCount") if config else None
             
-            logger.info(f"处理后的配置: {config}")
-            logger.info(f"处理后的配置键: {list(config.keys()) if isinstance(config, dict) and config else []}")
+            logger.info(f"配置值 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
             
-            # 初始化配置值
-            api_url = None
-            timeout = None
-            retry_count = None
-            
-            # 检查AstrBot配置是否存在
-            if config:
-                logger.info("AstrBot配置存在，开始解析配置...")
-                # 如果AstrBot配置存在，使用AstrBot配置
-                api_url = config.get("apiUrl")
-                timeout = config.get("timeout")
-                retry_count = config.get("retryCount")
-                
-                logger.info(f"AstrBot配置值 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
-                logger.info(f"api_url类型: {type(api_url)}, timeout类型: {type(timeout)}, retry_count类型: {type(retry_count)}")
-                
-                # 将AstrBot配置保存到KV存储（只有当值不为None时）
-                logger.info("开始保存配置到KV存储...")
-                if api_url is not None:
-                    logger.info(f"保存apiUrl到KV存储: {api_url}")
-                    await self.put_kv_data("apiUrl", api_url)
-                if timeout is not None:
-                    logger.info(f"保存timeout到KV存储: {timeout}")
-                    await self.put_kv_data("timeout", timeout)
-                if retry_count is not None:
-                    logger.info(f"保存retryCount到KV存储: {retry_count}")
-                    await self.put_kv_data("retryCount", retry_count)
-                logger.info("配置保存到KV存储完成")
-            else:
-                logger.info("AstrBot配置为空，将从KV存储获取配置")
-            
-            # 从KV存储中获取缺失的配置值
-            logger.info("开始从KV存储获取缺失的配置值...")
-            if api_url is None:
-                logger.info("apiUrl为None，从KV存储获取...")
-                api_url = await self.get_kv_data("apiUrl", "https://example.com")
-                logger.info(f"从KV存储获取apiUrl: {api_url}")
-            if timeout is None:
-                logger.info("timeout为None，从KV存储获取...")
-                timeout = await self.get_kv_data("timeout", 10)
-                logger.info(f"从KV存储获取timeout: {timeout}")
-            if retry_count is None:
-                logger.info("retryCount为None，从KV存储获取...")
-                retry_count = await self.get_kv_data("retryCount", 3)
-                logger.info(f"从KV存储获取retryCount: {retry_count}")
-            
-            logger.info(f"从KV存储获取配置完成 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
-            
-            # 确保配置值有效
-            logger.info("开始验证配置值...")
             if not api_url:
                 logger.warning("api_url为空，使用默认值")
                 api_url = "https://example.com"
@@ -153,8 +98,6 @@ class SuijituPlugin(Star):
             logger.error(f"异常类型: {type(e)}")
             logger.error(f"异常详细信息: {repr(e)}")
             logger.error(f"异常堆栈信息:", exc_info=True)
-            # 回退到默认配置
-            logger.info("设置默认配置...")
             self.config = {
                 "apiUrl": "https://example.com",
                 "timeout": 10,
