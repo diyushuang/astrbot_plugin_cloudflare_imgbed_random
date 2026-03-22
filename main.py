@@ -15,6 +15,8 @@ class CloudflareImgbedRandomPlugin(Star):
         self.version = '1.0.0'
         self.astrbot_config = config
         self.config = {}
+        # 注册LLM工具到AstrBot
+        self.context.add_llm_tools(self.send_random_media)
         logger.info(f"[cloudflare_imgbed_random] 插件初始化完成")
     
     async def on_load(self):
@@ -234,13 +236,15 @@ class CloudflareImgbedRandomPlugin(Star):
     async def send_random_media(self, event: AstrMessageEvent, directory: str = None):
         '''发送随机图片或视频
         
-        参数：
-        - directory: 目录路径（可选）
+        当用户请求随机图片或视频时使用此工具。
+        适用于用户提到"随机图"、"随机图片"、"随机视频"等关键词的情况。
         
-        返回结构化数据：
-        - success: 是否成功
-        - media_url: 媒体URL（成功时）
-        - message: 结果消息
+        参数：
+        - directory: 目录路径（可选），指定从哪个目录获取随机图片
+        
+        返回：
+        - 成功时返回包含图片URL的结构化数据
+        - 失败时返回错误信息
         '''
         try:
             # 尝试从事件中提取目录参数（如果没有直接传入）
