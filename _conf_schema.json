@@ -7,13 +7,13 @@
   },
   "timeout": {
     "description": "API请求超时时间（秒）",
-    "type": "integer",
+    "type": "int",
     "hint": "设置API请求的超时时间，默认为10秒",
     "default": 10
   },
   "retryCount": {
     "description": "API请求重试次数",
-    "type": "integer",
+    "type": "int",
     "hint": "设置API请求失败后的重试次数，默认为3次",
     "default": 3
   }
