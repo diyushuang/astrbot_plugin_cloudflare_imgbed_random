@@ -273,11 +273,19 @@ class CloudflareImgbedRandomPlugin(Star):
             media_url = await self._get_random_media(directory, content_type)
             
             if media_url:
+                if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
+                elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv')):
+                    yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
+                else:
+                    yield event.plain_result(f"随机媒体发送成功: {media_url}")
                 return {"success": True, "media_url": media_url, "message": "随机媒体发送成功"}
             else:
+                yield event.plain_result("获取随机媒体失败")
                 return {"success": False, "media_url": None, "message": "获取随机媒体失败"}
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] LLM工具调用失败: {str(e)}")
+            yield event.plain_result(f"LLM工具调用失败: {str(e)}")
             return {"success": False, "media_url": None, "message": f"LLM工具调用失败: {str(e)}"}
     
     async def terminate(self):
