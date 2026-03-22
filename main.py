@@ -487,12 +487,13 @@ class CloudflareImgbedRandomPlugin(Star):
             
             logger.info(f"[cloudflare_imgbed_random] 最终参数 - 目录: {extracted_directory}, 内容类型: {extracted_content_type}")
             
+            # 获取随机媒体URL
             media_url = await self._get_random_media(extracted_directory, extracted_content_type)
             
             if media_url:
                 logger.info(f"[cloudflare_imgbed_random] LLM工具获取到媒体URL: {media_url}")
                 
-                # 再次验证URL格式
+                # 验证URL格式
                 try:
                     parsed_url = urlparse(media_url)
                     if not parsed_url.scheme or not parsed_url.netloc:
@@ -508,7 +509,7 @@ class CloudflareImgbedRandomPlugin(Star):
                     yield event.plain_result("获取到的媒体URL解析失败")
                     return
                 
-                # 检查媒体类型
+                # 发送媒体消息
                 try:
                     if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
                         logger.debug("[cloudflare_imgbed_random] 检测到图片类型")
