@@ -1,104 +1,156 @@
-# 随机图床插件
+# CloudFlare ImgBed 随机图插件
 
 ## 项目介绍
 
-随机图床插件是一个为 AstrBot 设计的插件，用于从随机图床 API 获取图片和视频，并通过 AstrBot 发送到 QQ 群或好友。
+CloudFlare ImgBed 随机图插件是一个为 AstrBot 设计的插件，用于从 CloudFlare ImgBed 图床中获取随机图片并发送到聊天平台。
 
-## 功能特性
+### 主要功能
 
-- 🎲 随机获取图片和视频
-- 📤 直接通过 AstrBot 发送媒体
-- 🌐 支持多种消息平台
-- 🤖 支持 LLM 调用
-- 💾 配置持久化存储
-- ⏱️ 超时和重试机制
-- 📝 详细的错误处理和日志记录
+- 从 CloudFlare ImgBed 图床获取随机图片
+- 支持 API Token 鉴权
+- 支持从指定目录获取随机图片
+- 支持自动处理相对路径 URL
+- 支持图片和视频发送
+- 支持 LLM 工具调用
+- 完善的错误处理和日志记录
 
 ## 安装方法
 
-1. 将插件目录复制到 AstrBot 的 `data/plugins/` 目录
-2. 运行 `pip install -r requirements.txt` 安装依赖
-3. 重启 AstrBot
+### 方法一：通过 AstrBot 插件市场安装
+1. 打开 AstrBot 管理面板
+2. 进入「插件管理」页面
+3. 搜索「CloudFlare ImgBed随机图」
+4. 点击「安装」按钮
+
+### 方法二：手动安装
+1. 克隆本项目到 AstrBot 的插件目录
+   ```bash
+   git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugins/cloudflare_imgbed_random
+   ```
+2. 重启 AstrBot
 
 ## 配置说明
 
-在 AstrBot 的插件管理界面中设置以下参数：
+安装完成后，需要在插件配置中设置以下参数：
 
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `apiUrl` | 字符串 | `https://example.com` | 随机图床 API 地址 |
-| `timeout` | 整数 | `10` | API 请求超时时间（秒） |
-| `retryCount` | 整数 | `3` | API 请求重试次数 |
+### 1. API 地址
+- **配置项**：`apiUrl`
+- **说明**：CloudFlare ImgBed 的随机图 API 端点地址
+- **示例**：`https://your-domain/random`
+- **默认值**：`https://example.com`
+
+### 2. API Token（可选）
+- **配置项**：`apiToken`
+- **说明**：如果 API 需要鉴权，填写 API Token
+- **格式**：`Bearer YOUR_API_TOKEN`
+- **默认值**：空字符串
+
+### 3. 默认目录（可选）
+- **配置项**：`defaultDir`
+- **说明**：设置默认获取图片的目录，使用相对路径
+- **示例**：`img/wallpaper`
+- **默认值**：空字符串
+
+### 4. 超时时间
+- **配置项**：`timeout`
+- **说明**：API 请求超时时间（秒）
+- **默认值**：`10`
+
+### 5. 重试次数
+- **配置项**：`retryCount`
+- **说明**：API 请求失败后的重试次数
+- **默认值**：`3`
 
 ## 使用方法
 
-### 命令方式
+### 命令使用
 
-在 QQ 群或私聊中发送以下命令：
-
+#### 基本用法
+发送 `随机图` 命令，从默认目录获取随机图片：
 ```
-/随机图
+随机图
 ```
 
-支持的命令别名：
-- `/suijitu`
-- `/random`
-- `/随机图片`
-- `/randomimg`
+#### 指定目录
+发送 `随机图 目录路径` 命令，从指定目录获取随机图片：
+```
+随机图 img/wallpaper
+```
 
-### LLM 调用
+### LLM 工具调用
 
-LLM 可以通过 `sendRandomMedia` 工具调用插件功能。
+插件注册了 `sendRandomMedia` 工具，可以被 LLM 调用：
 
-## 工作原理
+```python
+# 调用示例
+result = await sendRandomMedia(directory="img/wallpaper")
 
-1. 插件从配置的随机图床 API 获取媒体 URL
-2. 检测媒体类型（图片或视频）
-3. 使用 AstrBot 的消息发送 API 发送媒体
-4. 记录详细的操作日志
+# 返回结果
+{
+  "success": true,
+  "media_url": "https://your-domain/file/example.jpg",
+  "message": "随机媒体发送成功"
+}
+```
+
+## API 文档参考
+
+本插件基于 CloudFlare ImgBed 的随机图 API 开发，参考文档：
+- [随机图 API](https://cfbed.sanyue.de/api/random.html)
+- [API 基本介绍](https://cfbed.sanyue.de/api/)
+
+### API 端点
+- 随机图 API：`/random`
+
+### 请求参数
+- `dir`：指定目录，使用相对路径
+- `content`：文件类型过滤，可选值有 `image, video`
+- `type`：返回内容类型，设为 `img` 时直接返回图片
+- `form`：响应格式，设为 `text` 时直接返回文本
+- `orientation`：图片方向筛选，可选值：`landscape`、`portrait`、`square`、`auto`
+
+### 响应格式
+- JSON 格式：`{"url": "/file/example.jpg"}`
+- 直接返回图片：当 `type=img` 时
+- 直接返回文本：当 `form=text` 时
 
 ## 常见问题
 
-### 1. 提示"获取随机媒体失败"
-- 检查网络连接是否正常
+### 1. 无法获取图片
 - 检查 API 地址是否正确
-- 检查 API 地址是否可访问
+- 检查 API Token 是否有效（如果需要）
+- 检查网络连接是否正常
 
-### 2. 请求超时
-- 可以在配置中增加超时时间
-- 检查网络连接是否稳定
+### 2. 图片显示为文本
+- 检查 API 响应格式是否为 JSON
+- 检查 API 返回的 URL 是否为相对路径
 
-### 3. 媒体发送失败
-- 检查媒体 URL 是否有效
-- 检查媒体文件大小是否超过限制
+### 3. 目录参数不生效
+- 检查目录路径是否正确
+- 检查 CloudFlare ImgBed 是否支持目录参数
 
-## 更新日志
+## 日志说明
 
-### v1.0.0
-- 插件首次发布
-- 支持随机获取图片和视频
-- 支持通过 AstrBot 发送媒体
-- 支持 LLM 调用
-- 支持配置持久化存储
-- 支持超时和重试机制
-- 支持多种命令别名
+插件会在 AstrBot 的日志中输出以下格式的日志：
+```
+[cloudflare_imgbed_random] 插件初始化完成
+[cloudflare_imgbed_random] 插件加载完成
+[cloudflare_imgbed_random] 获取随机媒体成功: https://your-domain/file/example.jpg
+```
 
-## 注意事项
+## 版本历史
 
-- 确保网络连接正常，能够访问图床 API
-- 注意文件大小限制，避免发送过大的文件
-- 支持的平台：QQ、Telegram、Discord 等
-- 插件使用 KV 存储来持久化配置
-- 插件会自动处理 API 请求的超时和重试
-
-## 依赖项
-
-- `aiohttp` - 用于异步 HTTP 请求
-
-## 开发者
-
-本插件由 AI 辅助开发，遵循 AstrBot 插件开发规范。
+- **v1.0.0**：
+  - 初始版本
+  - 支持从 CloudFlare ImgBed 获取随机图片
+  - 支持 API Token 鉴权
+  - 支持指定目录获取图片
+  - 支持 LLM 工具调用
 
 ## 许可证
 
-MIT License
+本项目采用 MIT 许可证。
+
+## 联系方式
+
+如果有任何问题或建议，欢迎提交 Issue 或 Pull Request。
