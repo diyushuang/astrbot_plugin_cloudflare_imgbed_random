@@ -98,38 +98,33 @@ class CloudflareImgbedRandomPlugin(Star):
     def _get_message_text(self, event):
         '''从事件中提取消息文本''' 
         try:
-            # 调试：输出事件的所有属性
-            logger.debug(f"[cloudflare_imgbed_random] 事件类型: {type(event)}, 属性: {dir(event)}")
-            
             # 尝试不同的方式获取消息文本
             if hasattr(event, 'message_str') and event.message_str:
-                msg = event.message_str
-                logger.debug(f"[cloudflare_imgbed_random] 从message_str获取: {msg}, 长度: {len(msg)}")
-                return msg
+                return event.message_str
             elif hasattr(event, 'message') and event.message:
-                msg = event.message
-                if isinstance(msg, str):
-                    logger.debug(f"[cloudflare_imgbed_random] 从message获取字符串: {msg}, 长度: {len(msg)}")
-                    return msg
+                if isinstance(event.message, str):
+                    return event.message
                 # 如果是消息链，尝试提取文本
-                if hasattr(msg, 'chain'):
+                if hasattr(event.message, 'chain'):
                     texts = []
-                    for comp in msg.chain:
+                    for comp in event.message.chain:
                         if hasattr(comp, 'text'):
                             texts.append(comp.text)
-                    result = ' '.join(texts)
-                    logger.debug(f"[cloudflare_imgbed_random] 从message.chain获取: {result}, 长度: {len(result)}")
-                    return result
+                    return ' '.join(texts)
             elif hasattr(event, 'get_message'):
                 msg = event.get_message()
                 if isinstance(msg, str):
-                    logger.debug(f"[cloudflare_imgbed_random] 从get_message()获取: {msg}, 长度: {len(msg)}")
                     return msg
             elif hasattr(event, 'raw_message'):
-                raw = event.raw_message
-                if isinstance(raw, str):
-                    logger.debug(f"[cloudflare_imgbed_random] 从raw_message获取: {raw}, 长度: {len(raw)}")
-                    return raw
+                if isinstance(event.raw_message, str):
+                    return event.raw_message
+            # 尝试其他常见的消息属性
+            elif hasattr(event, 'content'):
+                if isinstance(event.content, str):
+                    return event.content
+            elif hasattr(event, 'text'):
+                if isinstance(event.text, str):
+                    return event.text
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] 提取消息文本失败: {str(e)}")
         return None
@@ -343,48 +338,41 @@ class CloudflareImgbedRandomPlugin(Star):
         return None, None
     
     @filter.command("/随机图")
-    async def random_image(self, event: AstrMessageEvent):
+    async def random_image(self, event):
         '''发送随机图片'''
         logger.info("[cloudflare_imgbed_random] 命令处理器被触发: /随机图")
-        logger.debug(f"[cloudflare_imgbed_random] 事件对象: {event}")
-        logger.debug(f"[cloudflare_imgbed_random] 事件类型: {type(event)}")
-        logger.debug(f"[cloudflare_imgbed_random] 事件属性: {dir(event)}")
         async for result in self._handle_media(event, 'image'):
             yield result
     
     @filter.command("/随机视频")
-    async def random_video(self, event: AstrMessageEvent):
+    async def random_video(self, event):
         '''发送随机视频'''
         logger.info("[cloudflare_imgbed_random] 命令处理器被触发: /随机视频")
-        logger.debug(f"[cloudflare_imgbed_random] 事件对象: {event}")
-        logger.debug(f"[cloudflare_imgbed_random] 事件类型: {type(event)}")
-        logger.debug(f"[cloudflare_imgbed_random] 事件属性: {dir(event)}")
         async for result in self._handle_media(event, 'video'):
             yield result
     
-    async def _handle_media(self, event: AstrMessageEvent, content_type: str = None):
+    async def _handle_media(self, event, content_type=None):
         '''处理媒体请求的统一方法'''
         try:
             logger.info(f"[cloudflare_imgbed_random] 开始处理媒体请求，content_type: {content_type}")
             
-            # 使用新方法获取消息文本
+            # 提取目录参数
+            directory = None
             message = self._get_message_text(event)
             logger.info(f"[cloudflare_imgbed_random] 获取到消息: {message}")
             
-            # 提取目录参数（不处理内容类型，因为content_type参数已经指定）
-            directory = None
             if message:
-                # 对于带斜杠的命令，提取目录部分
                 if message.startswith('/随机图') and len(message) > 4:
                     directory = message[4:].strip()
-                    logger.debug(f"[cloudflare_imgbed_random] 从/随机图命令中提取目录: {repr(directory)}")
+                    logger.debug(f"[cloudflare_imgbed_random] 从/随机图命令中提取目录: {directory}")
                 elif message.startswith('/随机视频') and len(message) > 5:
                     directory = message[5:].strip()
-                    logger.debug(f"[cloudflare_imgbed_random] 从/随机视频命令中提取目录: {repr(directory)}")
+                    logger.debug(f"[cloudflare_imgbed_random] 从/随机视频命令中提取目录: {directory}")
             
             if directory:
                 logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}, 内容类型: {content_type}")
             
+            # 获取随机媒体
             media_url = await self._get_random_media(directory, content_type)
             
             if not media_url:
@@ -394,44 +382,19 @@ class CloudflareImgbedRandomPlugin(Star):
             
             logger.info(f"[cloudflare_imgbed_random] 获取到媒体URL: {media_url}")
             
-            # 验证URL格式
-            try:
-                parsed_url = urlparse(media_url)
-                if not parsed_url.scheme or not parsed_url.netloc:
-                    logger.warning(f"[cloudflare_imgbed_random] URL格式无效: {media_url}")
-                    yield event.plain_result("获取到的媒体URL格式无效")
-                    return
-                if parsed_url.scheme not in ['http', 'https']:
-                    logger.warning(f"[cloudflare_imgbed_random] URL协议无效: {media_url}")
-                    yield event.plain_result("获取到的媒体URL协议无效")
-                    return
-            except Exception as e:
-                logger.error(f"[cloudflare_imgbed_random] URL解析失败: {str(e)}")
-                yield event.plain_result("获取到的媒体URL解析失败")
-                return
-            
-            # 检查媒体类型
-            try:
-                if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                    logger.debug("[cloudflare_imgbed_random] 检测到图片类型")
-                    yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
-                elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv')):
-                    logger.debug("[cloudflare_imgbed_random] 检测到视频类型")
-                    yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
-                else:
-                    logger.debug(f"[cloudflare_imgbed_random] 其他类型: {media_url}")
-                    yield event.plain_result(f"随机媒体发送成功: {media_url}")
-            except Exception as e:
-                logger.error(f"[cloudflare_imgbed_random] 发送媒体失败: {str(e)}")
-                logger.error(f"[cloudflare_imgbed_random] 错误详情: {type(e).__name__}: {e}")
-                import traceback
-                logger.error(f"[cloudflare_imgbed_random] 堆栈信息: {traceback.format_exc()}")
-                yield event.plain_result(f"发送媒体时出错: {str(e)}")
+            # 发送媒体
+            if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                logger.debug("[cloudflare_imgbed_random] 检测到图片类型")
+                yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
+            elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv')):
+                logger.debug("[cloudflare_imgbed_random] 检测到视频类型")
+                yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
+            else:
+                logger.debug(f"[cloudflare_imgbed_random] 其他类型: {media_url}")
+                yield event.plain_result(f"随机媒体发送成功: {media_url}")
+                
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] 命令处理失败: {str(e)}")
-            logger.error(f"[cloudflare_imgbed_random] 错误详情: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[cloudflare_imgbed_random] 堆栈信息: {traceback.format_exc()}")
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
