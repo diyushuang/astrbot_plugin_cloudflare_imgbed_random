@@ -110,6 +110,13 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 /随机图
 ```
 
+发送以下命令从默认目录获取随机视频：
+
+```
+随机视频
+/随机视频
+```
+
 #### 指定目录
 
 发送以下命令从指定目录获取随机图片：
@@ -119,14 +126,17 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 /随机图 img/wallpaper
 ```
 
+发送以下命令从指定目录获取随机视频：
+
+```
+随机视频 video/movies
+/随机视频 video/movies
+```
+
 #### 支持的命令别名
 
-- `随机图`
-- `/随机图`
-- `imgbed`
-- `random`
-- `随机图片`
-- `randomimg`
+- 图片命令：`随机图`、`/随机图`、`imgbed`、`random`、`随机图片`、`randomimg`
+- 视频命令：`随机视频`、`/随机视频`、`randomvideo`、`随机影片`
 
 ### LLM 工具调用
 
@@ -145,7 +155,8 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `directory` | string | 否 | 目录路径，指定从哪个目录获取随机图片 |
+| `directory` | string | 否 | 目录路径，指定从哪个目录获取随机媒体 |
+| `content_type` | string | 否 | 内容类型，指定获取图片或视频，可选值：image, video |
 
 #### 返回格式
 

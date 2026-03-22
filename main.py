@@ -71,7 +71,7 @@ class CloudflareImgbedRandomPlugin(Star):
                 "retryCount": 3
             }
     
-    async def _get_random_media(self, directory=None):
+    async def _get_random_media(self, directory=None, content_type=None):
         if not self.config:
             await self._load_config()
         
@@ -103,6 +103,8 @@ class CloudflareImgbedRandomPlugin(Star):
         params = {}
         if target_dir:
             params['dir'] = target_dir
+        if content_type:
+            params['content'] = content_type
         
         if params:
             separator = '&' if '?' in api_url else '?'
@@ -180,15 +182,24 @@ class CloudflareImgbedRandomPlugin(Star):
     def _extract_directory(self, message):
         '''从消息中提取目录参数''' 
         if not message:
-            return None
+            return None, None
         
-        if message.startswith('/随机图') and len(message) > 4:
-            return message[4:].strip()
+        # 检查是否是视频命令
+        is_video = False
+        if message.startswith('/随机视频') and len(message) > 5:
+            is_video = True
+            return message[5:].strip(), 'video'
+        elif message.startswith('随机视频') and len(message) > 4:
+            is_video = True
+            return message[4:].strip(), 'video'
+        elif message.startswith('/随机图') and len(message) > 4:
+            return message[4:].strip(), 'image'
         elif message.startswith('随机图') and len(message) > 3:
-            return message[3:].strip()
-        return None
+            return message[3:].strip(), 'image'
+        return None, None
     
     @filter.command("随机图", alias={"/随机图", "imgbed", "random", "随机图片", "randomimg"})
+    @filter.command("随机视频", alias={"/随机视频", "randomvideo", "随机影片"})
     async def handle_random_media(self, event: AstrMessageEvent):
         '''发送随机图片或视频
         
@@ -197,6 +208,10 @@ class CloudflareImgbedRandomPlugin(Star):
         随机图 目录路径 - 从指定目录获取随机图片
         /随机图 - 从默认目录获取随机图片
         /随机图 目录路径 - 从指定目录获取随机图片
+        随机视频 - 从默认目录获取随机视频
+        随机视频 目录路径 - 从指定目录获取随机视频
+        /随机视频 - 从默认目录获取随机视频
+        /随机视频 目录路径 - 从指定目录获取随机视频
         ''' 
         try:
             message = None
@@ -207,11 +222,11 @@ class CloudflareImgbedRandomPlugin(Star):
             elif hasattr(event, 'raw_message'):
                 message = event.raw_message
             
-            directory = self._extract_directory(message)
+            directory, content_type = self._extract_directory(message)
             if directory:
-                logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
+                logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}, 内容类型: {content_type}")
             
-            media_url = await self._get_random_media(directory)
+            media_url = await self._get_random_media(directory, content_type)
             
             if not media_url:
                 yield event.plain_result("获取随机媒体失败")
@@ -219,7 +234,7 @@ class CloudflareImgbedRandomPlugin(Star):
             
             if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
                 yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
-            elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv')):
+            elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv')):
                 yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
             else:
                 yield event.plain_result(f"随机媒体发送成功: {media_url}")
@@ -228,7 +243,7 @@ class CloudflareImgbedRandomPlugin(Star):
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, event, directory: str = None):
+    async def send_random_media(self, event, directory: str = None, content_type: str = None):
         '''发送随机图片或视频
         
         当用户请求随机图片或视频时使用此工具。
@@ -236,6 +251,7 @@ class CloudflareImgbedRandomPlugin(Star):
         
         参数：
         - directory: 目录路径（可选），指定从哪个目录获取随机图片
+        - content_type: 内容类型（可选），指定获取图片或视频，可选值：image, video
         
         返回：
         - 成功时返回包含图片URL的结构化数据
@@ -251,11 +267,13 @@ class CloudflareImgbedRandomPlugin(Star):
                 elif hasattr(event, 'raw_message'):
                     message = event.raw_message
                 
-                directory = self._extract_directory(message)
+                directory, extracted_content_type = self._extract_directory(message)
+                if extracted_content_type:
+                    content_type = extracted_content_type
                 if directory:
-                    logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}")
+                    logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}, 内容类型: {content_type}")
             
-            media_url = await self._get_random_media(directory)
+            media_url = await self._get_random_media(directory, content_type)
             
             if media_url:
                 return {"success": True, "media_url": media_url, "message": "随机媒体发送成功"}
