@@ -22,7 +22,9 @@
 
 ## 📖 项目介绍
 
-CloudFlare ImgBed 随机图插件是一个功能强大的 AstrBot 插件，用于从 CloudFlare ImgBed 图床中获取随机图片和视频，并支持通过命令或 LLM 工具调用的方式发送到聊天平台。
+CloudFlare ImgBed 随机图插件是一个功能强大的 AstrBot 插件，用于从 [CloudFlare ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed) 图床中获取随机图片和视频，并支持通过命令或 LLM 工具调用的方式发送到聊天平台。
+
+本项目基于 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 框架开发，充分利用了其强大的插件系统和多平台支持能力。
 
 ### ✨ 功能特性
 
