@@ -221,8 +221,30 @@ class SuijituPlugin(Star):
                                     logger.info("开始解析JSON...")
                                     data = await response.json()
                                     logger.info(f"JSON数据: {data}")
-                                    media_url = data.get('url', '')
+                                    
+                                    # 处理不同的JSON格式
+                                    # 格式1: {"url": "/file/..."}
+                                    # 格式2: {"data": {"url": "/file/..."}}
+                                    media_url = None
+                                    if isinstance(data, dict):
+                                        # 尝试获取url字段
+                                        if 'url' in data:
+                                            media_url = data.get('url', '')
+                                        # 尝试获取data.url字段
+                                        elif 'data' in data and isinstance(data['data'], dict):
+                                            media_url = data['data'].get('url', '')
+                                    
                                     logger.info(f"从JSON获取的url: {media_url}")
+                                    
+                                    # 如果url是相对路径，需要拼接域名
+                                    if media_url and media_url.startswith('/'):
+                                        # 从api_url中提取域名
+                                        from urllib.parse import urlparse
+                                        parsed_url = urlparse(api_url)
+                                        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                                        media_url = base_url + media_url
+                                        logger.info(f"拼接后的完整URL: {media_url}")
+                                    
                                     if not media_url:
                                         logger.warning("JSON中的url为空，使用响应URL")
                                         media_url = str(response.url)
