@@ -34,5 +34,11 @@
     "type": "int",
     "hint": "设置API请求失败后的重试次数，默认为3次",
     "default": 3
+  },
+  "enableLLM": {
+    "description": "启用LLM调用",
+    "type": "bool",
+    "hint": "开启后可通过LLM调用插件，关闭后只允许通过命令调用插件",
+    "default": true
   }
 }

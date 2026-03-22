@@ -45,8 +45,9 @@ class CloudflareImgbedRandomPlugin(Star):
             default_dir = config.get("defaultDir") if config else None
             timeout = config.get("timeout") if config else None
             retry_count = config.get("retryCount") if config else None
+            enable_llm = config.get("enableLLM") if config else None
             
-            logger.debug(f"[cloudflare_imgbed_random] 原始配置值 - imgbedDomain: {imgbed_domain}, apiEndpoint: {api_endpoint}, apiToken: {'***' if api_token else ''}, defaultDir: {default_dir}, timeout: {timeout}, retryCount: {retry_count}")
+            logger.debug(f"[cloudflare_imgbed_random] 原始配置值 - imgbedDomain: {imgbed_domain}, apiEndpoint: {api_endpoint}, apiToken: {'***' if api_token else ''}, defaultDir: {default_dir}, timeout: {timeout}, retryCount: {retry_count}, enableLLM: {enable_llm}")
             
             imgbed_domain = imgbed_domain or "https://example.com"
             api_endpoint = api_endpoint or "/random"
@@ -56,6 +57,8 @@ class CloudflareImgbedRandomPlugin(Star):
             timeout = timeout if timeout is not None and timeout > 0 else 10
             # retry_count可以为0，表示不重试
             retry_count = retry_count if retry_count is not None and retry_count >= 0 else 3
+            # enable_llm默认为True
+            enable_llm = enable_llm if enable_llm is not None else True
             
             self.config = {
                 "imgbedDomain": imgbed_domain,
@@ -63,10 +66,11 @@ class CloudflareImgbedRandomPlugin(Star):
                 "apiToken": api_token,
                 "defaultDir": default_dir,
                 "timeout": timeout,
-                "retryCount": retry_count
+                "retryCount": retry_count,
+                "enableLLM": enable_llm
             }
             
-            logger.info(f"[cloudflare_imgbed_random] 配置加载成功: imgbedDomain={imgbed_domain}, apiEndpoint={api_endpoint}, defaultDir={default_dir}, timeout={timeout}, retryCount={retry_count}")
+            logger.info(f"[cloudflare_imgbed_random] 配置加载成功: imgbedDomain={imgbed_domain}, apiEndpoint={api_endpoint}, defaultDir={default_dir}, timeout={timeout}, retryCount={retry_count}, enableLLM={enable_llm}")
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] 加载配置失败: {str(e)}")
             logger.error(f"[cloudflare_imgbed_random] 错误详情: {type(e).__name__}: {e}")
@@ -78,7 +82,8 @@ class CloudflareImgbedRandomPlugin(Star):
                 "apiToken": "",
                 "defaultDir": "",
                 "timeout": 10,
-                "retryCount": 3
+                "retryCount": 3,
+                "enableLLM": True
             }
             logger.warning(f"[cloudflare_imgbed_random] 使用默认配置: {self.config}")
     
@@ -393,6 +398,16 @@ class CloudflareImgbedRandomPlugin(Star):
             content_type(string): 内容类型（可选），指定获取图片或视频，可选值：image, video
         '''
         try:
+            # 检查LLM开关是否开启
+            if not self.config:
+                await self._load_config()
+            
+            enable_llm = self.config.get("enableLLM", True)
+            if not enable_llm:
+                logger.warning("[cloudflare_imgbed_random] LLM调用已被禁用")
+                yield event.plain_result("LLM调用已被禁用，请使用命令方式调用")
+                return
+            
             logger.info(f"[cloudflare_imgbed_random] LLM工具被调用: directory={directory}, content_type={content_type}")
             
             # 处理不带斜杠的命令，从消息中提取目录和内容类型
