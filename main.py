@@ -335,15 +335,16 @@ class CloudflareImgbedRandomPlugin(Star):
             message = self._get_message_text(event)
             logger.info(f"[cloudflare_imgbed_random] 获取到消息: {message}")
             
-            directory, extracted_type = self._extract_directory(message)
-            # 内容类型优先级规则：
-            # 1. 优先使用用户明确指定的content_type参数
-            # 2. 只有当用户未指定时，才使用从消息中提取的类型
-            if extracted_type and not content_type:
-                content_type = extracted_type
-                logger.debug(f"[cloudflare_imgbed_random] 从消息中提取内容类型: {content_type}")
-            else:
-                logger.debug(f"[cloudflare_imgbed_random] 使用指定的内容类型: {content_type}")
+            # 提取目录参数（不处理内容类型，因为content_type参数已经指定）
+            directory = None
+            if message:
+                # 对于带斜杠的命令，提取目录部分
+                if message.startswith('/随机图') and len(message) > 4:
+                    directory = message[4:].strip()
+                    logger.debug(f"[cloudflare_imgbed_random] 从/随机图命令中提取目录: {repr(directory)}")
+                elif message.startswith('/随机视频') and len(message) > 5:
+                    directory = message[5:].strip()
+                    logger.debug(f"[cloudflare_imgbed_random] 从/随机视频命令中提取目录: {repr(directory)}")
             
             if directory:
                 logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}, 内容类型: {content_type}")
@@ -391,22 +392,32 @@ class CloudflareImgbedRandomPlugin(Star):
         try:
             logger.info(f"[cloudflare_imgbed_random] LLM工具被调用: directory={directory}, content_type={content_type}")
             
-            # 如果directory为None，尝试从消息中提取
-            if directory is None:
+            # 处理不带斜杠的命令，从消息中提取目录和内容类型
+            extracted_directory = directory
+            extracted_content_type = content_type
+            
+            if extracted_directory is None or extracted_content_type is None:
                 message = self._get_message_text(event)
                 logger.info(f"[cloudflare_imgbed_random] LLM工具获取到消息: {message}")
                 
-                directory, extracted_content_type = self._extract_directory(message)
-                # 内容类型优先级规则：
-                # 1. 优先使用LLM明确指定的content_type参数
-                # 2. 只有当LLM未指定时，才使用从消息中提取的类型
-                if extracted_content_type and not content_type:
-                    content_type = extracted_content_type
-                    logger.debug(f"[cloudflare_imgbed_random] 从消息中提取内容类型: {content_type}")
-                if directory:
-                    logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}, 内容类型: {content_type}")
+                # 只处理不带斜杠的命令
+                if message and not message.startswith('/'):
+                    dir_part, type_part = self._extract_directory(message)
+                    if dir_part and extracted_directory is None:
+                        extracted_directory = dir_part
+                        logger.info(f"[cloudflare_imgbed_random] 从消息中提取目录: {extracted_directory}")
+                    if type_part and extracted_content_type is None:
+                        extracted_content_type = type_part
+                        logger.info(f"[cloudflare_imgbed_random] 从消息中提取内容类型: {extracted_content_type}")
             
-            media_url = await self._get_random_media(directory, content_type)
+            # 如果仍然没有内容类型，默认为图片
+            if not extracted_content_type:
+                extracted_content_type = 'image'
+                logger.debug("[cloudflare_imgbed_random] 未指定内容类型，默认为图片")
+            
+            logger.info(f"[cloudflare_imgbed_random] 最终参数 - 目录: {extracted_directory}, 内容类型: {extracted_content_type}")
+            
+            media_url = await self._get_random_media(extracted_directory, extracted_content_type)
             
             if media_url:
                 logger.info(f"[cloudflare_imgbed_random] LLM工具获取到媒体URL: {media_url}")
