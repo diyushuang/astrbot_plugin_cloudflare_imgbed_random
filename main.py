@@ -74,12 +74,18 @@ class CloudflareImgbedRandomPlugin(Star):
     def _get_message_text(self, event):
         '''从事件中提取消息文本''' 
         try:
+            # 调试：输出事件的所有属性
+            logger.debug(f"[cloudflare_imgbed_random] 事件类型: {type(event)}, 属性: {dir(event)}")
+            
             # 尝试不同的方式获取消息文本
             if hasattr(event, 'message_str') and event.message_str:
-                return event.message_str
+                msg = event.message_str
+                logger.debug(f"[cloudflare_imgbed_random] 从message_str获取: {msg}, 长度: {len(msg)}")
+                return msg
             elif hasattr(event, 'message') and event.message:
                 msg = event.message
                 if isinstance(msg, str):
+                    logger.debug(f"[cloudflare_imgbed_random] 从message获取字符串: {msg}, 长度: {len(msg)}")
                     return msg
                 # 如果是消息链，尝试提取文本
                 if hasattr(msg, 'chain'):
@@ -87,14 +93,18 @@ class CloudflareImgbedRandomPlugin(Star):
                     for comp in msg.chain:
                         if hasattr(comp, 'text'):
                             texts.append(comp.text)
-                    return ' '.join(texts)
+                    result = ' '.join(texts)
+                    logger.debug(f"[cloudflare_imgbed_random] 从message.chain获取: {result}, 长度: {len(result)}")
+                    return result
             elif hasattr(event, 'get_message'):
                 msg = event.get_message()
                 if isinstance(msg, str):
+                    logger.debug(f"[cloudflare_imgbed_random] 从get_message()获取: {msg}, 长度: {len(msg)}")
                     return msg
             elif hasattr(event, 'raw_message'):
                 raw = event.raw_message
                 if isinstance(raw, str):
+                    logger.debug(f"[cloudflare_imgbed_random] 从raw_message获取: {raw}, 长度: {len(raw)}")
                     return raw
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] 提取消息文本失败: {str(e)}")
@@ -209,21 +219,41 @@ class CloudflareImgbedRandomPlugin(Star):
         return None
     
     def _extract_directory(self, message):
-        '''从消息中提取目录参数''' 
+        '''从消息中提取目录参数和内容类型
+        
+        Args:
+            message: 消息文本
+            
+        Returns:
+            tuple: (目录路径, 内容类型) 如果没有目录则目录路径为None，如果没有匹配命令则返回(None, None)
+        ''' 
         if not message or not isinstance(message, str):
+            logger.debug(f"[cloudflare_imgbed_random] _extract_directory: 消息为空或不是字符串")
             return None, None
         
+        original_message = message
         message = message.strip()
+        logger.debug(f"[cloudflare_imgbed_random] _extract_directory: 原始消息长度={len(original_message)}, 清理后长度={len(message)}, 内容={repr(message)}")
         
         # 检查是否是视频命令
-        if message.startswith('/随机视频') and len(message) > 5:
-            return message[5:].strip(), 'video'
-        elif message.startswith('随机视频') and len(message) > 4:
-            return message[4:].strip(), 'video'
-        elif message.startswith('/随机图') and len(message) > 4:
-            return message[4:].strip(), 'image'
-        elif message.startswith('随机图') and len(message) > 3:
-            return message[3:].strip(), 'image'
+        if message.startswith('/随机视频'):
+            dir_part = message[5:].strip() if len(message) > 5 else None
+            logger.debug(f"[cloudflare_imgbed_random] 匹配到 /随机视频, 目录部分: {repr(dir_part)}")
+            return dir_part, 'video'
+        elif message.startswith('随机视频'):
+            dir_part = message[4:].strip() if len(message) > 4 else None
+            logger.debug(f"[cloudflare_imgbed_random] 匹配到 随机视频, 目录部分: {repr(dir_part)}")
+            return dir_part, 'video'
+        elif message.startswith('/随机图'):
+            dir_part = message[4:].strip() if len(message) > 4 else None
+            logger.debug(f"[cloudflare_imgbed_random] 匹配到 /随机图, 目录部分: {repr(dir_part)}")
+            return dir_part, 'image'
+        elif message.startswith('随机图'):
+            dir_part = message[3:].strip() if len(message) > 3 else None
+            logger.debug(f"[cloudflare_imgbed_random] 匹配到 随机图, 目录部分: {repr(dir_part)}")
+            return dir_part, 'image'
+        
+        logger.debug(f"[cloudflare_imgbed_random] _extract_directory: 未匹配到任何命令")
         return None, None
     
     @filter.command("/随机图")
@@ -248,7 +278,10 @@ class CloudflareImgbedRandomPlugin(Star):
             logger.info(f"[cloudflare_imgbed_random] 获取到消息: {message}")
             
             directory, extracted_type = self._extract_directory(message)
-            if extracted_type:
+            # 内容类型优先级规则：
+            # 1. 优先使用用户明确指定的content_type参数
+            # 2. 只有当用户未指定时，才使用从消息中提取的类型
+            if extracted_type and not content_type:
                 content_type = extracted_type
             
             if directory:
@@ -289,7 +322,10 @@ class CloudflareImgbedRandomPlugin(Star):
                 logger.info(f"[cloudflare_imgbed_random] LLM工具获取到消息: {message}")
                 
                 directory, extracted_content_type = self._extract_directory(message)
-                if extracted_content_type:
+                # 内容类型优先级规则：
+                # 1. 优先使用LLM明确指定的content_type参数
+                # 2. 只有当LLM未指定时，才使用从消息中提取的类型
+                if extracted_content_type and not content_type:
                     content_type = extracted_content_type
                 if directory:
                     logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}, 内容类型: {content_type}")
