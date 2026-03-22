@@ -15,7 +15,6 @@ class SuijituPlugin(Star):
     
     async def onLoad(self):
         '''插件加载时调用''' 
-        logger.info("onLoad方法开始执行")
         try:
             await self._load_config()
             logger.info("随机图床插件已加载")
@@ -101,15 +100,9 @@ class SuijituPlugin(Star):
             return self.config
     
     async def _get_random_media(self):
-        logger.info(f"当前配置对象: {self.config}")
-        logger.info(f"配置类型: {type(self.config)}")
-        
         api_url = self.config.get('apiUrl')
-        logger.info(f"获取到的api_url: {api_url}, 类型: {type(api_url)}")
-        
         if not api_url:
             logger.error("API地址为空，请检查配置")
-            logger.error(f"完整的self.config内容: {self.config}")
             return None
         
         retry_count = self.config.get('retryCount', 3)
@@ -125,10 +118,8 @@ class SuijituPlugin(Star):
                         allow_redirects=True,
                         timeout=aiohttp.ClientTimeout(total=timeout)
                     ) as response:
-                        logger.info(f"API响应状态码: {response.status}, 尝试 {i+1}/{retry_count}")
                         if response.status == 200:
                             content_type = response.headers.get('Content-Type', '')
-                            logger.info(f"响应内容类型: {content_type}")
                             
                             # 检查响应类型并处理
                             if 'application/json' in content_type:
