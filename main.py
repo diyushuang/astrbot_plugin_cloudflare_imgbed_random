@@ -12,6 +12,11 @@ class SuijituPlugin(Star):
         self.description = '随机图床图片和视频发送插件'
         self.version = '1.0.0'
         self.config = {}
+        logger.info("========== 插件初始化 ==========")
+        logger.info(f"插件名称: {self.name}")
+        logger.info(f"插件版本: {self.version}")
+        logger.info(f"插件描述: {self.description}")
+        logger.info("========== 插件初始化完成 ==========")
     
     async def on_load(self):
         '''插件加载时调用''' 
@@ -147,6 +152,18 @@ class SuijituPlugin(Star):
         logger.info("========== 开始获取随机媒体 ==========")
         logger.info(f"当前配置对象: {self.config}")
         logger.info(f"配置类型: {type(self.config)}")
+        
+        # 如果配置为空，尝试加载配置
+        if not self.config:
+            logger.warning("配置为空，尝试加载配置...")
+            try:
+                await self._load_config()
+                logger.info(f"配置加载后的self.config: {self.config}")
+            except Exception as e:
+                logger.error(f"加载配置失败: {str(e)}")
+                logger.error(f"异常类型: {type(e)}")
+                logger.error(f"异常详细信息: {repr(e)}")
+                logger.error(f"异常堆栈信息:", exc_info=True)
         
         api_url = self.config.get('apiUrl')
         logger.info(f"获取到的api_url: {api_url}")
