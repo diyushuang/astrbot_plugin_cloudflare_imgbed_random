@@ -157,7 +157,10 @@ class CloudflareImgbedRandomPlugin(Star):
             
             target_dir = directory or default_dir
             
-            params = {}
+            params = {
+                'type': 'url',  # 始终返回完整URL
+                'form': 'json'  # 使用JSON格式响应
+            }
             if target_dir:
                 params['dir'] = target_dir
             if content_type:
