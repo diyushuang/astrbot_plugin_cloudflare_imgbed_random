@@ -13,7 +13,7 @@ class SuijituPlugin(Star):
         self.version = '1.0.0'
         self.config = {}
     
-    async def onLoad(self):
+    async def on_load(self):
         '''插件加载时调用''' 
         logger.info("========== 开始加载随机图床插件 ==========")
         logger.info(f"插件名称: {self.name}")
@@ -30,7 +30,7 @@ class SuijituPlugin(Star):
             logger.info("========== 随机图床插件加载完成 ==========")
         except Exception as e:
             logger.error("========== 插件加载失败 ==========")
-            logger.error(f"onLoad方法执行失败: {str(e)}")
+            logger.error(f"on_load方法执行失败: {str(e)}")
             logger.error(f"异常类型: {type(e)}")
             logger.error(f"异常详细信息: {repr(e)}")
             logger.error(f"异常堆栈信息:", exc_info=True)
