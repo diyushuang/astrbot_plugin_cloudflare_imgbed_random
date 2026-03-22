@@ -65,6 +65,17 @@ class SuijituPlugin(Star):
             logger.info(f"配置是否为空: {not config}")
             logger.info(f"配置键: {list(config.keys()) if config else []}")
             
+            # 如果config是AstrBotConfig对象，尝试获取其内部配置
+            if hasattr(config, '_config'):
+                logger.info(f"检测到AstrBotConfig对象，内部配置: {config._config}")
+                config = config._config
+            elif hasattr(config, 'data'):
+                logger.info(f"检测到data属性，data: {config.data}")
+                config = config.data
+            
+            logger.info(f"处理后的配置: {config}")
+            logger.info(f"处理后的配置键: {list(config.keys()) if isinstance(config, dict) and config else []}")
+            
             # 初始化配置值
             api_url = None
             timeout = None
