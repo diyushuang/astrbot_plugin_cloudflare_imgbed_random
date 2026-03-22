@@ -20,18 +20,26 @@ class CloudflareImgbedRandomPlugin(Star):
     async def on_load(self):
         '''插件加载时调用''' 
         try:
+            logger.info(f"[cloudflare_imgbed_random] 开始加载插件")
             await self._load_config()
-            logger.info(f"[cloudflare_imgbed_random] 插件加载完成")
+            logger.info(f"[cloudflare_imgbed_random] 插件加载完成，配置: {self.config}")
+            # 注册命令
+            logger.info(f"[cloudflare_imgbed_random] 命令注册完成")
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] 插件加载失败: {str(e)}")
+            logger.error(f"[cloudflare_imgbed_random] 错误详情: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"[cloudflare_imgbed_random] 堆栈信息: {traceback.format_exc()}")
             self.config = {
                 "imgbedDomain": "https://example.com",
                 "apiEndpoint": "/random",
                 "apiToken": "",
                 "defaultDir": "",
                 "timeout": 10,
-                "retryCount": 3
+                "retryCount": 3,
+                "enableLLM": True
             }
+            logger.warning(f"[cloudflare_imgbed_random] 使用默认配置: {self.config}")
     
     async def _load_config(self):
         '''加载插件配置''' 
@@ -324,6 +332,9 @@ class CloudflareImgbedRandomPlugin(Star):
     async def random_image(self, event: AstrMessageEvent):
         '''发送随机图片'''
         logger.info("[cloudflare_imgbed_random] 命令处理器被触发: /随机图")
+        logger.debug(f"[cloudflare_imgbed_random] 事件对象: {event}")
+        logger.debug(f"[cloudflare_imgbed_random] 事件类型: {type(event)}")
+        logger.debug(f"[cloudflare_imgbed_random] 事件属性: {dir(event)}")
         async for result in self._handle_media(event, 'image'):
             yield result
     
@@ -331,6 +342,9 @@ class CloudflareImgbedRandomPlugin(Star):
     async def random_video(self, event: AstrMessageEvent):
         '''发送随机视频'''
         logger.info("[cloudflare_imgbed_random] 命令处理器被触发: /随机视频")
+        logger.debug(f"[cloudflare_imgbed_random] 事件对象: {event}")
+        logger.debug(f"[cloudflare_imgbed_random] 事件类型: {type(event)}")
+        logger.debug(f"[cloudflare_imgbed_random] 事件属性: {dir(event)}")
         async for result in self._handle_media(event, 'video'):
             yield result
     
