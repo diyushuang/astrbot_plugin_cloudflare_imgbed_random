@@ -435,7 +435,7 @@ class CloudflareImgbedRandomPlugin(Star):
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, event: AstrMessageEvent, directory: str = None, content_type: str = None):
+    async def send_random_media(self, event, directory=None, content_type=None):
         '''发送随机图片或视频
 
         当用户请求随机图片或视频时使用此工具，例如：
@@ -446,8 +446,8 @@ class CloudflareImgbedRandomPlugin(Star):
         - "我想要一个随机视频"
 
         Args:
-            directory(string): 目录路径（可选），指定从哪个目录获取随机图片
-            content_type(string): 内容类型（可选），指定获取图片或视频，可选值：image, video
+            directory: 目录路径（可选），指定从哪个目录获取随机图片
+            content_type: 内容类型（可选），指定获取图片或视频，可选值：image, video
         '''
         try:
             # 检查LLM开关是否开启
@@ -462,25 +462,25 @@ class CloudflareImgbedRandomPlugin(Star):
             
             logger.info(f"[cloudflare_imgbed_random] LLM工具被调用: directory={directory}, content_type={content_type}")
             
-            # 处理不带斜杠的命令，从消息中提取目录和内容类型
+            # 处理参数
             extracted_directory = directory
             extracted_content_type = content_type
             
-            if extracted_directory is None or extracted_content_type is None:
+            # 如果参数为空，尝试从消息中提取
+            if not extracted_directory or not extracted_content_type:
                 message = self._get_message_text(event)
                 logger.info(f"[cloudflare_imgbed_random] LLM工具获取到消息: {message}")
                 
-                # 只处理不带斜杠的命令
                 if message and not message.startswith('/'):
                     dir_part, type_part = self._extract_directory(message)
-                    if dir_part and extracted_directory is None:
+                    if dir_part and not extracted_directory:
                         extracted_directory = dir_part
                         logger.info(f"[cloudflare_imgbed_random] 从消息中提取目录: {extracted_directory}")
-                    if type_part and extracted_content_type is None:
+                    if type_part and not extracted_content_type:
                         extracted_content_type = type_part
                         logger.info(f"[cloudflare_imgbed_random] 从消息中提取内容类型: {extracted_content_type}")
             
-            # 如果仍然没有内容类型，默认为图片
+            # 默认内容为图片
             if not extracted_content_type:
                 extracted_content_type = 'image'
                 logger.debug("[cloudflare_imgbed_random] 未指定内容类型，默认为图片")
@@ -490,45 +490,47 @@ class CloudflareImgbedRandomPlugin(Star):
             # 获取随机媒体URL
             media_url = await self._get_random_media(extracted_directory, extracted_content_type)
             
-            if media_url:
-                logger.info(f"[cloudflare_imgbed_random] LLM工具获取到媒体URL: {media_url}")
-                
-                # 验证URL格式
-                try:
-                    parsed_url = urlparse(media_url)
-                    if not parsed_url.scheme or not parsed_url.netloc:
-                        logger.warning(f"[cloudflare_imgbed_random] LLM工具: URL格式无效: {media_url}")
-                        yield event.plain_result("获取到的媒体URL格式无效")
-                        return
-                    if parsed_url.scheme not in ['http', 'https']:
-                        logger.warning(f"[cloudflare_imgbed_random] LLM工具: URL协议无效: {media_url}")
-                        yield event.plain_result("获取到的媒体URL协议无效")
-                        return
-                except Exception as e:
-                    logger.error(f"[cloudflare_imgbed_random] LLM工具: URL解析失败: {str(e)}")
-                    yield event.plain_result("获取到的媒体URL解析失败")
-                    return
-                
-                # 发送媒体消息
-                try:
-                    if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                        logger.debug("[cloudflare_imgbed_random] 检测到图片类型")
-                        yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
-                    elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv')):
-                        logger.debug("[cloudflare_imgbed_random] 检测到视频类型")
-                        yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
-                    else:
-                        logger.debug(f"[cloudflare_imgbed_random] 其他类型: {media_url}")
-                        yield event.plain_result(f"随机媒体发送成功: {media_url}")
-                except Exception as e:
-                    logger.error(f"[cloudflare_imgbed_random] LLM工具: 发送媒体失败: {str(e)}")
-                    logger.error(f"[cloudflare_imgbed_random] 错误详情: {type(e).__name__}: {e}")
-                    import traceback
-                    logger.error(f"[cloudflare_imgbed_random] 堆栈信息: {traceback.format_exc()}")
-                    yield event.plain_result(f"发送媒体时出错: {str(e)}")
-            else:
+            if not media_url:
                 logger.warning("[cloudflare_imgbed_random] LLM工具未获取到媒体URL")
                 yield event.plain_result("获取随机媒体失败，请检查配置或稍后重试")
+                return
+            
+            logger.info(f"[cloudflare_imgbed_random] LLM工具获取到媒体URL: {media_url}")
+            
+            # 验证URL格式
+            try:
+                parsed_url = urlparse(media_url)
+                if not parsed_url.scheme or not parsed_url.netloc:
+                    logger.warning(f"[cloudflare_imgbed_random] LLM工具: URL格式无效: {media_url}")
+                    yield event.plain_result("获取到的媒体URL格式无效")
+                    return
+                if parsed_url.scheme not in ['http', 'https']:
+                    logger.warning(f"[cloudflare_imgbed_random] LLM工具: URL协议无效: {media_url}")
+                    yield event.plain_result("获取到的媒体URL协议无效")
+                    return
+            except Exception as e:
+                logger.error(f"[cloudflare_imgbed_random] LLM工具: URL解析失败: {str(e)}")
+                yield event.plain_result("获取到的媒体URL解析失败")
+                return
+            
+            # 发送媒体消息
+            try:
+                if media_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    logger.debug("[cloudflare_imgbed_random] 检测到图片类型")
+                    yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
+                elif media_url.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv')):
+                    logger.debug("[cloudflare_imgbed_random] 检测到视频类型")
+                    yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
+                else:
+                    logger.debug(f"[cloudflare_imgbed_random] 其他类型: {media_url}")
+                    yield event.plain_result(f"随机媒体发送成功: {media_url}")
+            except Exception as e:
+                logger.error(f"[cloudflare_imgbed_random] LLM工具: 发送媒体失败: {str(e)}")
+                logger.error(f"[cloudflare_imgbed_random] 错误详情: {type(e).__name__}: {e}")
+                import traceback
+                logger.error(f"[cloudflare_imgbed_random] 堆栈信息: {traceback.format_exc()}")
+                yield event.plain_result(f"发送媒体时出错: {str(e)}")
+                
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] LLM工具调用失败: {str(e)}")
             logger.error(f"[cloudflare_imgbed_random] 错误详情: {type(e).__name__}: {e}")
