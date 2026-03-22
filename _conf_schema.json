@@ -2,7 +2,7 @@
   "apiUrl": {
     "description": "随机图床API地址（完整API端点）",
     "type": "string",
-    "hint": "请输入完整的随机图床API端点地址，例如：https://img.dixc.de/random 或 https://cfbed.sanyue.de/api/random.html",
+    "hint": "请输入完整的随机图床API端点地址，例如：https://cfbed.sanyue.de/api/random.html",
     "default": "https://example.com"
   },
   "timeout": {
