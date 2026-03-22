@@ -23,22 +23,31 @@ class SuijituPlugin(Star):
             # 首先从AstrBot配置中获取
             config = self.context.get_config() or {}
             
+            logger.info(f"从AstrBot获取的配置: {config}")
+            
             # 检查AstrBot配置是否存在
             if config:
                 # 如果AstrBot配置存在，使用AstrBot配置
-                api_url = config.get("apiUrl", "https://example.com")
-                timeout = config.get("timeout", 10)
-                retry_count = config.get("retryCount", 3)
+                api_url = config.get("apiUrl")
+                timeout = config.get("timeout")
+                retry_count = config.get("retryCount")
+                
+                logger.info(f"AstrBot配置值 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
                 
                 # 将AstrBot配置保存到KV存储
-                await self.put_kv_data("apiUrl", api_url)
-                await self.put_kv_data("timeout", timeout)
-                await self.put_kv_data("retryCount", retry_count)
+                if api_url is not None:
+                    await self.put_kv_data("apiUrl", api_url)
+                if timeout is not None:
+                    await self.put_kv_data("timeout", timeout)
+                if retry_count is not None:
+                    await self.put_kv_data("retryCount", retry_count)
             else:
                 # 如果AstrBot配置不存在，从KV存储中获取
                 api_url = await self.get_kv_data("apiUrl", "https://example.com")
                 timeout = await self.get_kv_data("timeout", 10)
                 retry_count = await self.get_kv_data("retryCount", 3)
+                
+                logger.info(f"从KV存储获取的配置 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
             
             # 确保配置值有效
             if not api_url:
@@ -53,6 +62,8 @@ class SuijituPlugin(Star):
                 "timeout": timeout,
                 "retryCount": retry_count
             }
+            
+            logger.info(f"最终配置: {self.config}")
             return self.config
         except Exception as e:
             logger.error(f"加载配置失败: {str(e)}")
