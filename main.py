@@ -54,11 +54,15 @@ class SuijituPlugin(Star):
         try:
             # 首先从AstrBot配置中获取
             logger.info("尝试从AstrBot获取配置...")
+            logger.info(f"self.context类型: {type(self.context)}")
+            logger.info(f"self.context: {self.context}")
+            
             config = self.context.get_config() or {}
             
             logger.info(f"从AstrBot获取的配置: {config}")
             logger.info(f"配置类型: {type(config)}")
             logger.info(f"配置是否为空: {not config}")
+            logger.info(f"配置键: {list(config.keys()) if config else []}")
             
             # 初始化配置值
             api_url = None

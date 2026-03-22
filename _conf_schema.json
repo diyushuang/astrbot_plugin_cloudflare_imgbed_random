@@ -1,8 +1,8 @@
 {
   "apiUrl": {
-    "description": "随机图床API地址",
+    "description": "随机图床API地址（完整URL，包含路径）",
     "type": "string",
-    "hint": "请输入随机图床的API地址，例如：https://example.com",
+    "hint": "请输入完整的随机图床API地址，例如：https://cfbed.sanyue.de/api/random.html 或 https://api.oick.cn/random/api.php",
     "default": "https://example.com"
   },
   "timeout": {
