@@ -15,8 +15,6 @@ class CloudflareImgbedRandomPlugin(Star):
         self.version = '1.0.0'
         self.astrbot_config = config
         self.config = {}
-        # 注册LLM工具到AstrBot
-        self.context.add_llm_tools(self.send_random_media)
         logger.info(f"[cloudflare_imgbed_random] 插件初始化完成")
     
     async def on_load(self):
