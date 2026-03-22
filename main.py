@@ -171,13 +171,15 @@ class CloudflareImgbedRandomPlugin(Star):
         logger.error("[cloudflare_imgbed_random] 所有重试失败，无法获取随机媒体")
         return None
     
-    @filter.command("随机图", alias={"imgbed", "random", "随机图片", "randomimg"})
+    @filter.command("随机图", alias={"/随机图", "imgbed", "random", "随机图片", "randomimg"})
     async def handle_random_media(self, event: AstrMessageEvent):
         '''发送随机图片或视频
         
         用法：
         随机图 - 从默认目录获取随机图片
         随机图 目录路径 - 从指定目录获取随机图片
+        /随机图 - 从默认目录获取随机图片
+        /随机图 目录路径 - 从指定目录获取随机图片
         ''' 
         try:
             # 解析命令参数
@@ -185,9 +187,16 @@ class CloudflareImgbedRandomPlugin(Star):
             directory = None
             
             # 提取目录参数
-            if message and len(message) > 3:
-                directory = message[3:].strip()
-                logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
+            if message:
+                # 处理 /随机图 格式
+                if message.startswith('/随机图'):
+                    if len(message) > 4:
+                        directory = message[4:].strip()
+                        logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
+                # 处理 随机图 格式
+                elif len(message) > 3:
+                    directory = message[3:].strip()
+                    logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
             
             media_url = await self._get_random_media(directory)
             
