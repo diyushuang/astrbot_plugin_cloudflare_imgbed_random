@@ -212,7 +212,7 @@ class CloudflareImgbedRandomPlugin(Star):
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, directory: str = None):
+    async def send_random_media(self, event, directory: str = None):
         '''发送随机图片或视频
         
         当用户请求随机图片或视频时使用此工具。
@@ -226,6 +226,19 @@ class CloudflareImgbedRandomPlugin(Star):
         - 失败时返回错误信息
         '''
         try:
+            if directory is None and event:
+                message = None
+                if hasattr(event, 'message'):
+                    message = event.message
+                elif hasattr(event, 'get_message'):
+                    message = event.get_message()
+                elif hasattr(event, 'raw_message'):
+                    message = event.raw_message
+                
+                directory = self._extract_directory(message)
+                if directory:
+                    logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}")
+            
             media_url = await self._get_random_media(directory)
             
             if media_url:
