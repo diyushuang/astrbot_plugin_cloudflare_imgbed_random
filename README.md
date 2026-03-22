@@ -106,14 +106,12 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 发送以下命令从默认目录获取随机图片：
 
 ```
-随机图
 /随机图
 ```
 
 发送以下命令从默认目录获取随机视频：
 
 ```
-随机视频
 /随机视频
 ```
 
@@ -122,21 +120,28 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 发送以下命令从指定目录获取随机图片：
 
 ```
-随机图 img/wallpaper
 /随机图 img/wallpaper
 ```
 
 发送以下命令从指定目录获取随机视频：
 
 ```
-随机视频 video/movies
 /随机视频 video/movies
 ```
 
-#### 支持的命令别名
+#### LLM 智能识别
 
-- 图片命令：`随机图`、`/随机图`、`imgbed`、`random`、`随机图片`、`randomimg`
-- 视频命令：`随机视频`、`/随机视频`、`randomvideo`、`随机影片`
+除了使用带斜杠的命令外，您还可以直接与AI对话：
+
+- 发送"随机图"或"随机图片"，AI会自动识别并调用插件发送随机图片
+- 发送"随机视频"或"随机影片"，AI会自动识别并调用插件发送随机视频
+- 可以指定目录，如"随机图 img/wallpaper"或"随机视频 video/movies"
+
+#### 命令说明
+
+- **直接命令**：带斜杠的命令（`/随机图`、`/随机视频`）直接触发插件功能
+- **LLM识别**：不带斜杠的命令由AI智能识别并调用插件工具
+- **目录支持**：两种方式都支持指定目录参数
 
 ### LLM 工具调用
 
