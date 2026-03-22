@@ -105,7 +105,37 @@ class SuijituPlugin(Star):
                     ) as response:
                         logger.info(f"API响应状态码: {response.status}, 尝试 {i+1}/{retry_count}")
                         if response.status == 200:
-                            media_url = str(response.url)
+                            content_type = response.headers.get('Content-Type', '')
+                            logger.info(f"响应内容类型: {content_type}")
+                            
+                            # 检查响应类型并处理
+                            if 'application/json' in content_type:
+                                # JSON格式响应，解析获取url
+                                try:
+                                    data = await response.json()
+                                    media_url = data.get('url', '')
+                                    if not media_url:
+                                        media_url = str(response.url)
+                                    logger.info(f"从JSON解析获取URL: {media_url}")
+                                except Exception as e:
+                                    logger.error(f"解析JSON失败: {str(e)}")
+                                    media_url = str(response.url)
+                            elif 'image/' in content_type or 'video/' in content_type:
+                                # 直接返回图片或视频
+                                media_url = str(response.url)
+                                logger.info(f"直接使用响应URL: {media_url}")
+                            else:
+                                # 其他格式，尝试解析文本
+                                try:
+                                    text = await response.text()
+                                    media_url = text.strip()
+                                    if not media_url:
+                                        media_url = str(response.url)
+                                    logger.info(f"从文本解析获取URL: {media_url}")
+                                except Exception as e:
+                                    logger.error(f"解析文本失败: {str(e)}")
+                                    media_url = str(response.url)
+                            
                             logger.info(f"获取随机媒体成功: {media_url}")
                             return media_url
                         else:
