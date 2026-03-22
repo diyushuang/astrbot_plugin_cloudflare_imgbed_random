@@ -1,4 +1,4 @@
-# CloudFlare ImgBed 随机图插件
+# AstrBot CloudFlare ImgBed 随机图插件
 
 <div align="center">
 
@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-**一个为 AstrBot 设计的 CloudFlare ImgBed 随机图插件**
+**AstrBot 的 CloudFlare ImgBed 随机图插件**
 
 [功能特性](#功能特性) • [安装方法](#安装方法) • [配置说明](#配置说明) • [使用方法](#使用方法)
 
@@ -22,9 +22,7 @@
 
 ## 📖 项目介绍
 
-CloudFlare ImgBed 随机图插件是一个功能强大的 AstrBot 插件，用于从 [CloudFlare ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed) 图床中获取随机图片和视频，并支持通过命令或 LLM 工具调用的方式发送到聊天平台。
-
-本项目基于 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 框架开发，充分利用了其强大的插件系统和多平台支持能力。
+本项目是 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的一个插件，用于从 [CloudFlare ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed) 图床中获取随机图片和视频，并支持通过命令或 LLM 工具调用的方式发送到聊天平台。
 
 ### ✨ 功能特性
 
