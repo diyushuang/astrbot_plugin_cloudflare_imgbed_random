@@ -410,7 +410,7 @@ class CloudflareImgbedRandomPlugin(Star):
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, event, directory: str | None = None, content_type: str | None = None):
+    async def send_random_media(self, event, directory: str = "", content_type: str = ""):
         '''发送随机图片或视频
 
         当用户请求随机图片或视频时使用此工具，例如：
