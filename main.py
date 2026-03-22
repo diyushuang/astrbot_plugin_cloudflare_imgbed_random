@@ -25,7 +25,8 @@ class CloudflareImgbedRandomPlugin(Star):
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] 插件加载失败: {str(e)}")
             self.config = {
-                "apiUrl": "https://example.com",
+                "imgbedDomain": "https://example.com",
+                "apiEndpoint": "/random",
                 "apiToken": "",
                 "defaultDir": "",
                 "timeout": 10,
@@ -35,13 +36,15 @@ class CloudflareImgbedRandomPlugin(Star):
     async def _load_config(self):
         try:
             config = self.astrbot_config
-            api_url = config.get("apiUrl") if config else None
+            imgbed_domain = config.get("imgbedDomain") if config else None
+            api_endpoint = config.get("apiEndpoint") if config else None
             api_token = config.get("apiToken") if config else None
             default_dir = config.get("defaultDir") if config else None
             timeout = config.get("timeout") if config else None
             retry_count = config.get("retryCount") if config else None
             
-            api_url = api_url or "https://example.com"
+            imgbed_domain = imgbed_domain or "https://example.com"
+            api_endpoint = api_endpoint or "/random"
             api_token = api_token or ""
             default_dir = default_dir or ""
             # timeout需要大于0，因为超时时间不能为0或负数
@@ -50,7 +53,8 @@ class CloudflareImgbedRandomPlugin(Star):
             retry_count = retry_count if retry_count is not None and retry_count >= 0 else 3
             
             self.config = {
-                "apiUrl": api_url,
+                "imgbedDomain": imgbed_domain,
+                "apiEndpoint": api_endpoint,
                 "apiToken": api_token,
                 "defaultDir": default_dir,
                 "timeout": timeout,
@@ -59,7 +63,8 @@ class CloudflareImgbedRandomPlugin(Star):
         except Exception as e:
             logger.error(f"[cloudflare_imgbed_random] 加载配置失败: {str(e)}")
             self.config = {
-                "apiUrl": "https://example.com",
+                "imgbedDomain": "https://example.com",
+                "apiEndpoint": "/random",
                 "apiToken": "",
                 "defaultDir": "",
                 "timeout": 10,
@@ -70,17 +75,28 @@ class CloudflareImgbedRandomPlugin(Star):
         if not self.config:
             await self._load_config()
         
-        api_url = self.config.get('apiUrl')
+        imgbed_domain = self.config.get('imgbedDomain')
+        api_endpoint = self.config.get('apiEndpoint')
         api_token = self.config.get('apiToken')
         default_dir = self.config.get('defaultDir')
         
-        if api_url in ('https://example.com', 'http://example.com'):
-            logger.warning("[cloudflare_imgbed_random] 检测到使用默认API地址，请在插件配置中设置正确的CloudFlare ImgBed API地址")
+        if imgbed_domain in ('https://example.com', 'http://example.com'):
+            logger.warning("[cloudflare_imgbed_random] 检测到使用默认图床域名，请在插件配置中设置正确的CloudFlare ImgBed图床域名")
             return None
         
-        if not api_url:
-            logger.error("[cloudflare_imgbed_random] API地址为空，请检查配置")
+        if not imgbed_domain:
+            logger.error("[cloudflare_imgbed_random] 图床域名为空，请检查配置")
             return None
+        
+        if not api_endpoint:
+            logger.error("[cloudflare_imgbed_random] API接口路径为空，请检查配置")
+            return None
+        
+        # 构建完整的API URL
+        if api_endpoint.startswith('/'):
+            api_url = f"{imgbed_domain}{api_endpoint}"
+        else:
+            api_url = f"{imgbed_domain}/{api_endpoint}"
         
         target_dir = directory or default_dir
         

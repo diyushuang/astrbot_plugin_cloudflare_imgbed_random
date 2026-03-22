@@ -1,9 +1,15 @@
 {
-  "apiUrl": {
-    "description": "CloudFlare ImgBed API地址（完整API端点）",
+  "imgbedDomain": {
+    "description": "CloudFlare ImgBed 图床域名",
     "type": "string",
-    "hint": "请输入完整的CloudFlare ImgBed API端点地址，例如：https://your-domain/random",
+    "hint": "请输入图床的域名，例如：https://your-domain",
     "default": "https://example.com"
+  },
+  "apiEndpoint": {
+    "description": "API 接口路径",
+    "type": "string",
+    "hint": "请输入API接口路径，例如：/random 或 /api/random.html",
+    "default": "/random"
   },
   "apiToken": {
     "description": "API Token（可选）",
