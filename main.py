@@ -4,6 +4,7 @@ from astrbot.api import logger
 from astrbot.api.message_components import Plain, Image, Video
 import asyncio
 import aiohttp
+from urllib.parse import urlparse
 
 class SuijituPlugin(Star):
     def __init__(self, context: Context):
@@ -239,7 +240,6 @@ class SuijituPlugin(Star):
                                     # 如果url是相对路径，需要拼接域名
                                     if media_url and media_url.startswith('/'):
                                         # 从api_url中提取域名
-                                        from urllib.parse import urlparse
                                         parsed_url = urlparse(api_url)
                                         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
                                         media_url = base_url + media_url
