@@ -270,10 +270,11 @@ class CloudflareImgbedRandomPlugin(Star):
             logger.info(f"[cloudflare_imgbed_random] 获取到消息: {message}")
 
             if message:
-                if message.startswith('/随机图') and len(message) > 4:
-                    directory = message[4:].strip()
-                elif message.startswith('/随机视频') and len(message) > 5:
-                    directory = message[5:].strip()
+                dir_part, type_part = self._extract_directory(message)
+                if dir_part is not None:
+                    directory = dir_part
+                if type_part:
+                    content_type = type_part
 
             media_url = await self._get_random_media(directory, content_type)
 
