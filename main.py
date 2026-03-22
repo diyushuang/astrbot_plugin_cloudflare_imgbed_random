@@ -25,6 +25,11 @@ class SuijituPlugin(Star):
             
             logger.info(f"从AstrBot获取的配置: {config}")
             
+            # 初始化配置值
+            api_url = None
+            timeout = None
+            retry_count = None
+            
             # 检查AstrBot配置是否存在
             if config:
                 # 如果AstrBot配置存在，使用AstrBot配置
@@ -34,20 +39,24 @@ class SuijituPlugin(Star):
                 
                 logger.info(f"AstrBot配置值 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
                 
-                # 将AstrBot配置保存到KV存储
+                # 将AstrBot配置保存到KV存储（只有当值不为None时）
                 if api_url is not None:
                     await self.put_kv_data("apiUrl", api_url)
                 if timeout is not None:
                     await self.put_kv_data("timeout", timeout)
                 if retry_count is not None:
                     await self.put_kv_data("retryCount", retry_count)
-            else:
-                # 如果AstrBot配置不存在，从KV存储中获取
+            
+            # 从KV存储中获取缺失的配置值
+            if api_url is None:
                 api_url = await self.get_kv_data("apiUrl", "https://example.com")
+                logger.info(f"从KV存储获取apiUrl: {api_url}")
+            if timeout is None:
                 timeout = await self.get_kv_data("timeout", 10)
+                logger.info(f"从KV存储获取timeout: {timeout}")
+            if retry_count is None:
                 retry_count = await self.get_kv_data("retryCount", 3)
-                
-                logger.info(f"从KV存储获取的配置 - api_url: {api_url}, timeout: {timeout}, retry_count: {retry_count}")
+                logger.info(f"从KV存储获取retryCount: {retry_count}")
             
             # 确保配置值有效
             if not api_url:
