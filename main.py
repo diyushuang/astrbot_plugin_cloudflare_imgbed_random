@@ -177,11 +177,19 @@ class SuijituPlugin(Star):
                                 logger.error(f"读取响应文本失败: {str(e)}")
                                 
                             # 检查响应类型并处理
-                            if 'application/json' in content_type or (content_type == 'text/plain' and text and text.strip().startswith('{')):
+                            is_json_response = False
+                            try:
+                                # 尝试解析JSON
+                                import json
+                                data = json.loads(text)
+                                is_json_response = True
                                 logger.info("检测到JSON格式响应")
+                            except Exception:
+                                pass
+                            
+                            if is_json_response:
                                 # JSON格式响应，解析获取url
                                 try:
-                                    logger.info("开始解析JSON...")
                                     import json
                                     data = json.loads(text)
                                     logger.info(f"JSON数据: {data}")
