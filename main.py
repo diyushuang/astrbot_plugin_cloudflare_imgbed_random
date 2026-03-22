@@ -1,3 +1,4 @@
+from typing import Optional
 from astrbot.api.event import filter
 from astrbot.api.star import Context, Star
 from astrbot.api import logger, AstrBotConfig
@@ -409,7 +410,7 @@ class CloudflareImgbedRandomPlugin(Star):
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, event, directory: str = None, content_type: str = None):
+    async def send_random_media(self, event, directory: Optional[str] = None, content_type: Optional[str] = None):
         '''发送随机图片或视频
 
         当用户请求随机图片或视频时使用此工具，例如：
