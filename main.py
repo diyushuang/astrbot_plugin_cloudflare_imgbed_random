@@ -146,8 +146,12 @@ class CloudflareImgbedRandomPlugin(Star):
             logger.debug(f"[cloudflare_imgbed_random] 配置值 - imgbedDomain: {imgbed_domain}, apiEndpoint: {api_endpoint}, defaultDir: {default_dir}")
             
             # 严格的配置验证
-            if not imgbed_domain or imgbed_domain in ('https://example.com', 'http://example.com'):
-                logger.warning("[cloudflare_imgbed_random] 图床域名未配置或使用默认值，请在插件配置中设置正确的CloudFlare ImgBed图床域名")
+            if not imgbed_domain:
+                logger.error("[cloudflare_imgbed_random] 图床域名为空，请检查配置")
+                return None
+            
+            if imgbed_domain in ('https://example.com', 'http://example.com'):
+                logger.warning("[cloudflare_imgbed_random] 检测到使用默认图床域名，请在插件配置中设置正确的CloudFlare ImgBed图床域名")
                 return None
             
             if not api_endpoint:
