@@ -377,6 +377,13 @@ class CloudflareImgbedRandomPlugin(Star):
     async def send_random_media(self, event: AstrMessageEvent, directory: str = None, content_type: str = None):
         '''发送随机图片或视频
 
+        当用户请求随机图片或视频时使用此工具，例如：
+        - "随机图"
+        - "随机图片"
+        - "随机视频"
+        - "给我一张随机图片"
+        - "我想要一个随机视频"
+
         Args:
             directory(string): 目录路径（可选），指定从哪个目录获取随机图片
             content_type(string): 内容类型（可选），指定获取图片或视频，可选值：image, video
