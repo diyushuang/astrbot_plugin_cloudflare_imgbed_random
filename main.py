@@ -538,3 +538,6 @@ class CloudflareImgbedRandomPlugin(Star):
     async def terminate(self):
         '''插件卸载时调用''' 
         logger.info("[cloudflare_imgbed_random] 插件已卸载")
+
+# 导出插件
+__plugin__ = CloudflareImgbedRandomPlugin
