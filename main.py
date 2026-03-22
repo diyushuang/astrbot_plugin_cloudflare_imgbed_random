@@ -183,7 +183,15 @@ class CloudflareImgbedRandomPlugin(Star):
         ''' 
         try:
             # 解析命令参数
-            message = event.get_message()
+            message = None
+            # 尝试不同的方式获取消息内容
+            if hasattr(event, 'message'):
+                message = event.message
+            elif hasattr(event, 'get_message'):
+                message = event.get_message()
+            elif hasattr(event, 'raw_message'):
+                message = event.raw_message
+            
             directory = None
             
             # 提取目录参数
@@ -194,7 +202,7 @@ class CloudflareImgbedRandomPlugin(Star):
                         directory = message[4:].strip()
                         logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
                 # 处理 随机图 格式
-                elif len(message) > 3:
+                elif message.startswith('随机图') and len(message) > 3:
                     directory = message[3:].strip()
                     logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
             
@@ -235,6 +243,28 @@ class CloudflareImgbedRandomPlugin(Star):
         - message: 结果消息
         '''
         try:
+            # 尝试从事件中提取目录参数（如果没有直接传入）
+            if directory is None and event:
+                # 尝试不同的方式获取消息内容
+                message = None
+                if hasattr(event, 'message'):
+                    message = event.message
+                elif hasattr(event, 'get_message'):
+                    message = event.get_message()
+                elif hasattr(event, 'raw_message'):
+                    message = event.raw_message
+                
+                # 从消息中提取目录参数
+                if message:
+                    # 处理 /随机图 格式
+                    if message.startswith('/随机图') and len(message) > 4:
+                        directory = message[4:].strip()
+                        logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}")
+                    # 处理 随机图 格式
+                    elif message.startswith('随机图') and len(message) > 3:
+                        directory = message[3:].strip()
+                        logger.info(f"[cloudflare_imgbed_random] 从事件中提取目录: {directory}")
+            
             media_url = await self._get_random_media(directory)
             
             if media_url:
