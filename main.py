@@ -15,8 +15,21 @@ class SuijituPlugin(Star):
     
     async def onLoad(self):
         '''插件加载时调用''' 
-        await self._load_config()
-        logger.info("随机图床插件已加载")
+        logger.info("onLoad方法开始执行")
+        try:
+            await self._load_config()
+            logger.info("随机图床插件已加载")
+        except Exception as e:
+            logger.error(f"onLoad方法执行失败: {str(e)}")
+            logger.error(f"异常类型: {type(e)}")
+            logger.error(f"异常详细信息: {repr(e)}")
+            # 设置默认配置
+            self.config = {
+                "apiUrl": "https://example.com",
+                "timeout": 10,
+                "retryCount": 3
+            }
+            logger.info(f"使用默认配置: {self.config}")
     
     async def _load_config(self):
         try:
