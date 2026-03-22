@@ -61,6 +61,14 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 
 安装完成后，需要在插件配置中设置以下参数：
 
+### API 接口说明
+
+- **CloudFlare ImgBed 默认 API 端点**：`/random`
+- **兼容其他图床**：只要能返回相同格式内容的图床都可以使用
+- **示例 API 地址**：`https://cfbed.sanyue.de/api/random.html`
+- **配置方式**：在插件配置中填写完整的 API 地址，包括图床域名和 API 接口
+- **自定义支持**：允许用户根据自己的图床服务自定义填写 API 地址
+
 ### 必填配置
 
 | 配置项 | 说明 | 示例 | 默认值 |
