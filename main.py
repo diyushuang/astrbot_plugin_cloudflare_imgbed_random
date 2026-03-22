@@ -65,20 +65,25 @@ class SuijituPlugin(Star):
             return self.config
     
     async def _get_random_media(self):
-        if not self.config.get('apiUrl'):
+        api_url = self.config.get('apiUrl')
+        if not api_url:
+            logger.error("API地址为空，请检查配置")
             return None
         
         retry_count = self.config.get('retryCount', 3)
         timeout = self.config.get('timeout', 10)
         
+        logger.info(f"开始获取随机媒体，API地址: {api_url}, 重试次数: {retry_count}, 超时时间: {timeout}")
+        
         for i in range(retry_count):
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
-                        self.config.get('apiUrl'), 
+                        api_url, 
                         allow_redirects=True,
                         timeout=aiohttp.ClientTimeout(total=timeout)
                     ) as response:
+                        logger.info(f"API响应状态码: {response.status}, 尝试 {i+1}/{retry_count}")
                         if response.status == 200:
                             media_url = str(response.url)
                             logger.info(f"获取随机媒体成功: {media_url}")
@@ -94,6 +99,7 @@ class SuijituPlugin(Star):
             if i < retry_count - 1:
                 await asyncio.sleep(1)
         
+        logger.error(f"所有重试失败，无法获取随机媒体")
         return None
     
     @filter.command("随机图", alias={"suijitu", "random", "随机图片", "randomimg"})
