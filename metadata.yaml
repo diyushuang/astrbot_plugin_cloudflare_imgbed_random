@@ -1,8 +1,8 @@
-name: suijitu
+name: cloudflare_imgbed_random
 version: 1.0.0
-description: 随机图床图片和视频发送插件
+description: 从CloudFlare ImgBed图床中获取随机图片
 author: ""
-display_name: 随机图床
+display_name: CloudFlare ImgBed随机图
 support_platforms:
   - aiocqhttp
   - qq_official

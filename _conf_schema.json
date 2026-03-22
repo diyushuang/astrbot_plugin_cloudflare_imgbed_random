@@ -1,9 +1,21 @@
 {
   "apiUrl": {
-    "description": "随机图床API地址（完整API端点）",
+    "description": "CloudFlare ImgBed API地址（完整API端点）",
     "type": "string",
-    "hint": "请输入完整的随机图床API端点地址，例如：https://cfbed.sanyue.de/random",
+    "hint": "请输入完整的CloudFlare ImgBed API端点地址，例如：https://your-domain/random",
     "default": "https://example.com"
+  },
+  "apiToken": {
+    "description": "API Token（可选）",
+    "type": "string",
+    "hint": "如果API需要鉴权，请输入API Token，格式：Bearer YOUR_API_TOKEN",
+    "default": ""
+  },
+  "defaultDir": {
+    "description": "默认目录（可选）",
+    "type": "string",
+    "hint": "设置默认获取图片的目录，使用相对路径，例如：img/wallpaper",
+    "default": ""
   },
   "timeout": {
     "description": "API请求超时时间（秒）",

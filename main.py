@@ -4,28 +4,30 @@ from astrbot.api import logger, AstrBotConfig
 from astrbot.api.message_components import Plain, Image, Video
 import asyncio
 import aiohttp
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 import json
 
-class SuijituPlugin(Star):
+class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
-        self.name = 'suijitu'
-        self.description = '随机图床图片和视频发送插件'
+        self.name = 'cloudflare_imgbed_random'
+        self.description = '从CloudFlare ImgBed图床中获取随机图片'
         self.version = '1.0.0'
         self.astrbot_config = config
         self.config = {}
-        logger.info(f"[suijitu] 插件初始化完成")
+        logger.info(f"[cloudflare_imgbed_random] 插件初始化完成")
     
     async def on_load(self):
         '''插件加载时调用''' 
         try:
             await self._load_config()
-            logger.info(f"[suijitu] 插件加载完成")
+            logger.info(f"[cloudflare_imgbed_random] 插件加载完成")
         except Exception as e:
-            logger.error(f"[suijitu] 插件加载失败: {str(e)}")
+            logger.error(f"[cloudflare_imgbed_random] 插件加载失败: {str(e)}")
             self.config = {
                 "apiUrl": "https://example.com",
+                "apiToken": "",
+                "defaultDir": "",
                 "timeout": 10,
                 "retryCount": 3
             }
@@ -34,11 +36,17 @@ class SuijituPlugin(Star):
         try:
             config = self.astrbot_config
             api_url = config.get("apiUrl") if config else None
+            api_token = config.get("apiToken") if config else None
+            default_dir = config.get("defaultDir") if config else None
             timeout = config.get("timeout") if config else None
             retry_count = config.get("retryCount") if config else None
             
             if not api_url:
                 api_url = "https://example.com"
+            if not api_token:
+                api_token = ""
+            if not default_dir:
+                default_dir = ""
             if timeout is None or timeout <= 0:
                 timeout = 10
             if retry_count is None or retry_count < 0:
@@ -46,40 +54,67 @@ class SuijituPlugin(Star):
             
             self.config = {
                 "apiUrl": api_url,
+                "apiToken": api_token,
+                "defaultDir": default_dir,
                 "timeout": timeout,
                 "retryCount": retry_count
             }
         except Exception as e:
-            logger.error(f"[suijitu] 加载配置失败: {str(e)}")
+            logger.error(f"[cloudflare_imgbed_random] 加载配置失败: {str(e)}")
             self.config = {
                 "apiUrl": "https://example.com",
+                "apiToken": "",
+                "defaultDir": "",
                 "timeout": 10,
                 "retryCount": 3
             }
     
-    async def _get_random_media(self):
+    async def _get_random_media(self, directory=None):
         if not self.config:
             await self._load_config()
         
         api_url = self.config.get('apiUrl')
+        api_token = self.config.get('apiToken')
+        default_dir = self.config.get('defaultDir')
         
         if api_url == 'https://example.com' or api_url == 'http://example.com':
-            logger.warning("[suijitu] 检测到使用默认API地址，请在插件配置中设置正确的随机图床API地址")
+            logger.warning("[cloudflare_imgbed_random] 检测到使用默认API地址，请在插件配置中设置正确的CloudFlare ImgBed API地址")
             return None
         
         if not api_url:
-            logger.error("[suijitu] API地址为空，请检查配置")
+            logger.error("[cloudflare_imgbed_random] API地址为空，请检查配置")
             return None
+        
+        # 确定使用的目录
+        target_dir = directory or default_dir
+        
+        # 构建请求参数
+        params = {}
+        if target_dir:
+            params['dir'] = target_dir
+        
+        # 构建完整URL
+        if params:
+            if '?' in api_url:
+                api_url = f"{api_url}&{urlencode(params)}"
+            else:
+                api_url = f"{api_url}?{urlencode(params)}"
         
         retry_count = self.config.get('retryCount', 3)
         timeout = self.config.get('timeout', 10)
         
         for i in range(retry_count):
             try:
+                # 构建请求头
+                headers = {}
+                if api_token:
+                    headers['Authorization'] = api_token
+                
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
                         api_url, 
                         allow_redirects=True,
+                        headers=headers,
                         timeout=aiohttp.ClientTimeout(total=timeout)
                     ) as response:
                         if response.status == 200:
@@ -90,7 +125,7 @@ class SuijituPlugin(Star):
                             try:
                                 text = await response.text()
                             except Exception as e:
-                                logger.error(f"[suijitu] 读取响应文本失败: {str(e)}")
+                                logger.error(f"[cloudflare_imgbed_random] 读取响应文本失败: {str(e)}")
                                 continue
                             
                             # 尝试解析JSON
@@ -124,23 +159,37 @@ class SuijituPlugin(Star):
                             if media_url:
                                 return media_url
                         else:
-                            logger.warning(f"[suijitu] 获取随机媒体失败，状态码: {response.status}")
+                            logger.warning(f"[cloudflare_imgbed_random] 获取随机媒体失败，状态码: {response.status}")
             except asyncio.TimeoutError:
-                logger.warning(f"[suijitu] 获取随机媒体超时")
+                logger.warning(f"[cloudflare_imgbed_random] 获取随机媒体超时")
             except Exception as e:
-                logger.error(f"[suijitu] 获取随机媒体失败: {str(e)}")
+                logger.error(f"[cloudflare_imgbed_random] 获取随机媒体失败: {str(e)}")
             
             if i < retry_count - 1:
                 await asyncio.sleep(1)
         
-        logger.error("[suijitu] 所有重试失败，无法获取随机媒体")
+        logger.error("[cloudflare_imgbed_random] 所有重试失败，无法获取随机媒体")
         return None
     
-    @filter.command("随机图", alias={"suijitu", "random", "随机图片", "randomimg"})
+    @filter.command("随机图", alias={"imgbed", "random", "随机图片", "randomimg"})
     async def handle_random_media(self, event: AstrMessageEvent):
-        '''发送随机图片或视频''' 
+        '''发送随机图片或视频
+        
+        用法：
+        随机图 - 从默认目录获取随机图片
+        随机图 目录路径 - 从指定目录获取随机图片
+        ''' 
         try:
-            media_url = await self._get_random_media()
+            # 解析命令参数
+            message = event.get_message()
+            directory = None
+            
+            # 提取目录参数
+            if message and len(message) > 3:
+                directory = message[3:].strip()
+                logger.info(f"[cloudflare_imgbed_random] 指定目录: {directory}")
+            
+            media_url = await self._get_random_media(directory)
             
             if not media_url:
                 yield event.plain_result("获取随机媒体失败")
@@ -161,14 +210,15 @@ class SuijituPlugin(Star):
             else:
                 yield event.plain_result(f"随机媒体发送成功: {media_url}")
         except Exception as e:
-            logger.error(f"[suijitu] 命令处理失败: {str(e)}")
+            logger.error(f"[cloudflare_imgbed_random] 命令处理失败: {str(e)}")
             yield event.plain_result(f"命令处理失败: {str(e)}")
     
     @filter.llm_tool(name="sendRandomMedia")
-    async def send_random_media(self, event: AstrMessageEvent):
+    async def send_random_media(self, event: AstrMessageEvent, directory: str = None):
         '''发送随机图片或视频
         
-        无参数
+        参数：
+        - directory: 目录路径（可选）
         
         返回结构化数据：
         - success: 是否成功
@@ -176,7 +226,7 @@ class SuijituPlugin(Star):
         - message: 结果消息
         '''
         try:
-            media_url = await self._get_random_media()
+            media_url = await self._get_random_media(directory)
             
             if media_url:
                 return {
@@ -191,7 +241,7 @@ class SuijituPlugin(Star):
                     "message": "获取随机媒体失败"
                 }
         except Exception as e:
-            logger.error(f"[suijitu] LLM工具调用失败: {str(e)}")
+            logger.error(f"[cloudflare_imgbed_random] LLM工具调用失败: {str(e)}")
             return {
                 "success": False,
                 "media_url": None,
@@ -200,4 +250,4 @@ class SuijituPlugin(Star):
     
     async def terminate(self):
         '''插件卸载时调用''' 
-        logger.info("[suijitu] 插件已卸载")
+        logger.info("[cloudflare_imgbed_random] 插件已卸载")
