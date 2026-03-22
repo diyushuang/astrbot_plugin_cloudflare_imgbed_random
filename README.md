@@ -65,9 +65,17 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 
 - **CloudFlare ImgBed 默认 API 端点**：`/random`
 - **兼容其他图床**：只要能返回相同格式内容的图床都可以使用
+- **支持的响应格式**：
+  - JSON 格式：`{"url": "/path/to/image.jpg"}` 或 `{"data": {"url": "/path/to/image.jpg"}}`
+  - 直接返回图片/视频（Content-Type 为 image/* 或 video/*）
+  - 直接返回 URL 文本（纯文本格式）
 - **示例配置**：
-  - 图床域名：`https://cfbed.sanyue.de`
-  - API 接口：`/api/random`
+  - CloudFlare ImgBed：
+    - 图床域名：`https://cfbed.sanyue.de`
+    - API 接口：`/api/random`
+  - 其他兼容图床：
+    - 图床域名：`https://your-imgbed.com`
+    - API 接口：`/api/random-image`
 - **配置方式**：在插件配置中分别填写图床域名和 API 接口路径
 - **自定义支持**：允许用户根据自己的图床服务自定义填写 API 接口路径
 
