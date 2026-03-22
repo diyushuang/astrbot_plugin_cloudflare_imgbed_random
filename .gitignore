@@ -1,18 +1,11 @@
-# 依赖包
-node_modules/
+# Python
+__pycache__/
+*.pyc
 
-# 临时文件
-temp/
-
-# 配置文件
-config.json
-
-# 日志文件
-*.log
-
-# 编辑器文件
+# IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
+
+# OS
+.DS_Store
+Thumbs.db
