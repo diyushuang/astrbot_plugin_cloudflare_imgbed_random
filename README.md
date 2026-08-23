@@ -83,7 +83,7 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 
 | 配置项 | 说明 | 示例 | 默认值 |
 |--------|------|------|--------|
-| `imgbedDomain` | CloudFlare ImgBed 图床域名 | `https://your-domain` | `https://example.com` |
+| `imgbedDomain` | CloudFlare ImgBed 图床域名 | `https://your-domain` | 空字符串（必须配置） |
 | `apiEndpoint` | API 接口路径 | `/random` 或 `/api/random.html` | `/random` |
 
 ### 可选配置
@@ -94,6 +94,9 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 | `defaultDir` | 默认目录（相对路径） | `img/wallpaper` | 空字符串 |
 | `timeout` | API 请求超时时间（秒） | `10` | `10` |
 | `retryCount` | API 请求重试次数 | `3` | `3` |
+| `enableLLM` | 是否启用 LLM 工具调用 | `true` | `true` |
+
+> 配置了 `apiToken` 时，`imgbedDomain` 必须使用 HTTPS。`retryCount` 表示失败后的重试次数，因此总请求次数为 `retryCount + 1`。
 
 ---
 
@@ -211,6 +214,7 @@ suijitu/
 ├── metadata.yaml        # 插件元数据
 ├── _conf_schema.json    # 配置 Schema
 ├── requirements.txt     # 依赖列表
+├── tests/                # 单元测试
 └── README.md           # 项目文档
 ```
 
@@ -263,6 +267,16 @@ suijitu/
 ---
 
 ## 📝 更新日志
+
+### v1.1.0 (2026-08-23)
+
+**修复与改进**
+- 🔧 修复 AstrBot 插件配置注入和命令注册方式
+- 🔧 修复 LLM 工具目录参数丢失、`retryCount=0` 不请求等问题
+- 🌐 支持相对 URL、直接返回媒体响应和更多媒体后缀
+- 🛡️ 增加 URL、Token、响应体大小和内容类型校验，避免暴露内部异常
+- ⚡ 复用 HTTP 会话并加入指数退避，减少重复连接开销
+- ✅ 增加单元测试和 GitHub Actions 持续集成
 
 ### v1.0.0 (2026-03-22)
 

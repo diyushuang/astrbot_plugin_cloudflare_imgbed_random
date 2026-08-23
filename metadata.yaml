@@ -1,7 +1,7 @@
 name: cloudflare_imgbed_random
-version: 1.0.0
+version: 1.1.0
 description: 从CloudFlare ImgBed图床中获取随机图片
-author: ""
+author: diyushuang
 display_name: CloudFlare ImgBed随机图
 support_platforms:
   - aiocqhttp

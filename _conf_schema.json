@@ -3,7 +3,7 @@
     "description": "CloudFlare ImgBed 图床域名",
     "type": "string",
     "hint": "请输入图床的域名，例如：https://your-domain",
-    "default": "https://example.com"
+    "default": ""
   },
   "apiEndpoint": {
     "description": "API 接口路径",
@@ -33,7 +33,8 @@
     "description": "API请求重试次数",
     "type": "int",
     "hint": "设置API请求失败后的重试次数，默认为3次",
-    "default": 3
+    "default": 3,
+    "min": 0
   },
   "enableLLM": {
     "description": "启用LLM调用",

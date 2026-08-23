@@ -9,3 +9,10 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local test/runtime artifacts
+.pytest_cache/
+__pycache__/
+
+# Unrelated JavaScript dependencies
+node_modules/
