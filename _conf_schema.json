@@ -41,5 +41,11 @@
     "type": "bool",
     "hint": "开启后可通过LLM调用插件，关闭后只允许通过命令调用插件",
     "default": true
+  },
+  "showFileInfo": {
+    "description": "发送时附带目录和文件名",
+    "type": "bool",
+    "hint": "开启后随机图片/视频消息会附带所在的文件夹目录和文件名",
+    "default": true
   }
 }

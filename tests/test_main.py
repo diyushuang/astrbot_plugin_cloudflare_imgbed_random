@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 import unittest
+from urllib.parse import quote
 
 
 def _install_astrbot_stubs():
@@ -134,6 +135,67 @@ class PluginTests(unittest.TestCase):
 
         self.assertEqual(result, "https://img.example/file.jpg")
         self.assertIn("dir=configured%2Fdefault", captured["url"])
+
+
+class ExtractMediaInfoTests(unittest.TestCase):
+    def test_imgbed_url_with_directory(self):
+        info = main.CloudflareImgbedRandomPlugin._extract_media_info(
+            "https://img.example/file/10、商务宣传/Guerlain.jpg"
+        )
+        self.assertEqual(info, ("10、商务宣传", "Guerlain.jpg"))
+
+    def test_encoded_chinese_path_is_decoded(self):
+        url = "https://img.example/file/" + quote("10、商务宣传") + "/" + quote("照片（1）.jpg")
+        info = main.CloudflareImgbedRandomPlugin._extract_media_info(url)
+        self.assertEqual(info, ("10、商务宣传", "照片（1）.jpg"))
+
+    def test_nested_directory(self):
+        info = main.CloudflareImgbedRandomPlugin._extract_media_info("https://img.example/file/album/sub/pic.png")
+        self.assertEqual(info, ("album/sub", "pic.png"))
+
+    def test_filename_only(self):
+        info = main.CloudflareImgbedRandomPlugin._extract_media_info("https://img.example/file/abc123.jpg")
+        self.assertEqual(info, ("", "abc123.jpg"))
+
+    def test_path_without_extension_returns_none(self):
+        self.assertIsNone(main.CloudflareImgbedRandomPlugin._extract_media_info("https://img.example/random"))
+
+    def test_empty_path_returns_none(self):
+        self.assertIsNone(main.CloudflareImgbedRandomPlugin._extract_media_info("https://img.example/"))
+
+
+class MediaCaptionTests(unittest.TestCase):
+    def setUp(self):
+        self.plugin = main.CloudflareImgbedRandomPlugin(
+            types.SimpleNamespace(get_config=lambda: {}),
+            config={},
+        )
+        self.plugin.settings = {"showFileInfo": True}
+
+    def test_caption_includes_folder_and_filename(self):
+        caption = self.plugin._build_media_caption(
+            "https://img.example/file/10、商务宣传/Guerlain.jpg", "图片"
+        )
+        self.assertEqual(caption, "📁 10、商务宣传\n🖼️ Guerlain.jpg")
+
+    def test_video_caption_uses_video_icon(self):
+        caption = self.plugin._build_media_caption("https://img.example/file/视频/movie.mp4", "视频")
+        self.assertEqual(caption, "📁 视频\n🎬 movie.mp4")
+
+    def test_caption_without_folder_only_shows_filename(self):
+        caption = self.plugin._build_media_caption("https://img.example/file/abc123.jpg", "图片")
+        self.assertEqual(caption, "🖼️ abc123.jpg")
+
+    def test_caption_falls_back_when_info_missing(self):
+        caption = self.plugin._build_media_caption("https://img.example/random", "图片")
+        self.assertEqual(caption, "随机图片发送成功")
+
+    def test_caption_falls_back_when_disabled(self):
+        self.plugin.settings = {"showFileInfo": False}
+        caption = self.plugin._build_media_caption(
+            "https://img.example/file/10、商务宣传/Guerlain.jpg", "图片"
+        )
+        self.assertEqual(caption, "随机图片发送成功")
 
 
 if __name__ == "__main__":

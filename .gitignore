@@ -16,3 +16,4 @@ __pycache__/
 
 # Unrelated JavaScript dependencies
 node_modules/
+.mimosa/

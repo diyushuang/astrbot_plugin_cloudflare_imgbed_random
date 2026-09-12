@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 from typing import Optional
-from urllib.parse import urljoin, urlparse, urlencode
+from urllib.parse import urljoin, urlparse, urlencode, unquote
 
 import aiohttp
 from astrbot.api import logger
@@ -17,7 +17,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", "
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp", ".ts"}
 
 
-@register("cloudflare_imgbed_random", "", "从CloudFlare ImgBed图床中获取随机图片", "1.1.0")
+@register("cloudflare_imgbed_random", "", "从CloudFlare ImgBed图床中获取随机图片", "1.2.0")
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -51,6 +51,10 @@ class CloudflareImgbedRandomPlugin(Star):
             if isinstance(enable_llm, str):
                 enable_llm = enable_llm.strip().lower() not in {"false", "0", "no", "off"}
 
+            show_file_info = config.get("showFileInfo", True)
+            if isinstance(show_file_info, str):
+                show_file_info = show_file_info.strip().lower() not in {"false", "0", "no", "off"}
+
             self.settings = {
                 "imgbedDomain": str(config.get("imgbedDomain") or "").strip(),
                 "apiEndpoint": str(config.get("apiEndpoint") or "/random").strip(),
@@ -59,6 +63,7 @@ class CloudflareImgbedRandomPlugin(Star):
                 "timeout": max(timeout, 0.1),
                 "retryCount": max(retry_count, 0),
                 "enableLLM": enable_llm,
+                "showFileInfo": show_file_info,
             }
             self.config = config
             logger.info("[cloudflare_imgbed_random] 配置加载成功")
@@ -72,6 +77,7 @@ class CloudflareImgbedRandomPlugin(Star):
                 "timeout": 10.0,
                 "retryCount": 3,
                 "enableLLM": True,
+                "showFileInfo": True,
             }
 
     @staticmethod
@@ -152,6 +158,42 @@ class CloudflareImgbedRandomPlugin(Star):
         if parsed.username or parsed.password:
             return None
         return media_url
+
+    @staticmethod
+    def _extract_media_info(media_url: str):
+        """从媒体 URL 中提取目录和文件名，无法识别时返回 None。
+
+        CloudFlare ImgBed 直链形如 /file/目录/文件名.jpg，其中 /file/ 是
+        固定路由前缀，不作为图片目录。
+        """
+        try:
+            path = unquote(urlparse(media_url).path)
+            segments = [seg for seg in path.split("/") if seg]
+            if not segments:
+                return None
+            filename = segments[-1]
+            if "." not in filename:
+                return None
+            dirs = segments[:-1]
+            if dirs and dirs[0] == "file":
+                dirs = dirs[1:]
+            return "/".join(dirs), filename
+        except Exception:
+            return None
+
+    def _build_media_caption(self, media_url: str, kind: str) -> str:
+        """构建随媒体一起发送的文案，附带目录和文件名。"""
+        default_caption = f"随机{kind}发送成功"
+        if not self.settings.get("showFileInfo", True):
+            return default_caption
+        info = self._extract_media_info(media_url)
+        if not info:
+            return default_caption
+        folder, filename = info
+        icon = "🖼️" if kind == "图片" else "🎬"
+        if folder:
+            return f"📁 {folder}\n{icon} {filename}"
+        return f"{icon} {filename}"
 
     async def _get_random_media(self, directory=None, content_type=None):
         """获取并校验随机媒体 URL。"""
@@ -260,9 +302,9 @@ class CloudflareImgbedRandomPlugin(Star):
 
             path = urlparse(media_url).path.lower()
             if content_type == "image" or any(path.endswith(ext) for ext in IMAGE_EXTENSIONS):
-                yield event.chain_result([Plain("随机图片发送成功"), Image.fromURL(media_url)])
+                yield event.chain_result([Plain(self._build_media_caption(media_url, "图片")), Image.fromURL(media_url)])
             elif content_type == "video" or any(path.endswith(ext) for ext in VIDEO_EXTENSIONS):
-                yield event.chain_result([Plain("随机视频发送成功"), Video.fromURL(media_url)])
+                yield event.chain_result([Plain(self._build_media_caption(media_url, "视频")), Video.fromURL(media_url)])
             else:
                 yield event.plain_result(f"随机媒体发送成功: {media_url}")
         except Exception as exc:
