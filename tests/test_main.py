@@ -1,4 +1,4 @@
-"""suijitu 插件单元测试。
+"""astrbot_plugin_cloudflare_imgbed_random 插件单元测试。
 
 先以 stub 替换 astrbot.* 模块（无需安装 AstrBot）再导入 main，
 覆盖目录提取、URL 解析与校验、随机媒体请求、媒体文件名解析

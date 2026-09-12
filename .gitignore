@@ -17,3 +17,6 @@ __pycache__/
 # Unrelated JavaScript dependencies
 node_modules/
 .mimosa/
+
+# AI editor session files
+.zcode/

@@ -1,5 +1,15 @@
 # 更新日志
 
+## v1.2.2 (2026-09-12)
+
+**重大变更**
+- 📛 按 AstrBot 官方插件命名规范，插件标识符由 `cloudflare_imgbed_random` 重命名为 `astrbot_plugin_cloudflare_imgbed_random`，GitHub 仓库同步更名为 `astrbot_plugin_cloudflare_imgbed_random`
+- ⚠️ 已安装用户需卸载后重新安装本插件，插件配置会按新插件名重新保存
+
+**调整**
+- 📋 `metadata.yaml` 规范化：`description` 字段改为 `desc`，新增 `repo` 字段，`astrbot_version` 按官方指南去除引号
+- ✍️ 补全 `@register` 注册装饰器中的作者信息
+
 ## v1.2.1 (2026-09-12)
 
 **调整**

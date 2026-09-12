@@ -26,7 +26,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", "
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp", ".ts"}
 
 
-@register("cloudflare_imgbed_random", "", "从CloudFlare ImgBed图床中获取随机图片", "1.2.1")
+@register("astrbot_plugin_cloudflare_imgbed_random", "diyushuang", "从CloudFlare ImgBed图床中获取随机图片", "1.2.2")
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -36,7 +36,7 @@ class CloudflareImgbedRandomPlugin(Star):
 
     async def initialize(self):
         await self._load_config()
-        logger.info("[cloudflare_imgbed_random] 插件初始化完成")
+        logger.info("[astrbot_plugin_cloudflare_imgbed_random] 插件初始化完成")
 
     async def _load_config(self):
         """加载并规范化插件配置。"""
@@ -75,9 +75,9 @@ class CloudflareImgbedRandomPlugin(Star):
                 "showFileInfo": show_file_info,
             }
             self.config = config
-            logger.info("[cloudflare_imgbed_random] 配置加载成功")
+            logger.info("[astrbot_plugin_cloudflare_imgbed_random] 配置加载成功")
         except Exception as exc:
-            logger.error(f"[cloudflare_imgbed_random] 加载配置失败: {exc}")
+            logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 加载配置失败: {exc}")
             self.settings = {
                 "imgbedDomain": "",
                 "apiEndpoint": "/random",
@@ -109,7 +109,7 @@ class CloudflareImgbedRandomPlugin(Star):
                 if isinstance(value, str):
                     return value
         except Exception as exc:
-            logger.error(f"[cloudflare_imgbed_random] 提取消息文本失败: {exc}")
+            logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 提取消息文本失败: {exc}")
         return None
 
     @staticmethod
@@ -141,20 +141,20 @@ class CloudflareImgbedRandomPlugin(Star):
         endpoint = self.settings.get("apiEndpoint", "/random").strip()
         parsed_domain = urlparse(domain)
         if parsed_domain.scheme not in {"http", "https"} or not parsed_domain.netloc:
-            logger.error("[cloudflare_imgbed_random] 图床域名必须是有效的 HTTP(S) URL")
+            logger.error("[astrbot_plugin_cloudflare_imgbed_random] 图床域名必须是有效的 HTTP(S) URL")
             return None
         if parsed_domain.username or parsed_domain.password:
-            logger.error("[cloudflare_imgbed_random] 图床域名不能包含账号或密码")
+            logger.error("[astrbot_plugin_cloudflare_imgbed_random] 图床域名不能包含账号或密码")
             return None
         if parsed_domain.query or parsed_domain.fragment:
-            logger.error("[cloudflare_imgbed_random] 图床域名不能包含查询参数或片段")
+            logger.error("[astrbot_plugin_cloudflare_imgbed_random] 图床域名不能包含查询参数或片段")
             return None
         if not endpoint:
-            logger.error("[cloudflare_imgbed_random] API接口路径为空")
+            logger.error("[astrbot_plugin_cloudflare_imgbed_random] API接口路径为空")
             return None
         parsed_endpoint = urlparse(endpoint)
         if parsed_endpoint.scheme or parsed_endpoint.netloc:
-            logger.error("[cloudflare_imgbed_random] API接口必须是相对路径")
+            logger.error("[astrbot_plugin_cloudflare_imgbed_random] API接口必须是相对路径")
             return None
         return f"{domain}/{endpoint.lstrip('/')}"
 
@@ -213,7 +213,7 @@ class CloudflareImgbedRandomPlugin(Star):
 
         content_type = content_type.lower().strip() if isinstance(content_type, str) else None
         if content_type and content_type not in ALLOWED_CONTENT_TYPES:
-            logger.warning(f"[cloudflare_imgbed_random] 不支持的内容类型: {content_type}")
+            logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 不支持的内容类型: {content_type}")
             return None
 
         api_url = self._build_api_url()
@@ -235,7 +235,7 @@ class CloudflareImgbedRandomPlugin(Star):
         headers = {}
         if self.settings.get("apiToken"):
             if urlparse(api_url).scheme != "https":
-                logger.error("[cloudflare_imgbed_random] 配置 Token 时必须使用 HTTPS")
+                logger.error("[astrbot_plugin_cloudflare_imgbed_random] 配置 Token 时必须使用 HTTPS")
                 return None
             headers["Authorization"] = self.settings["apiToken"]
 
@@ -249,7 +249,7 @@ class CloudflareImgbedRandomPlugin(Star):
                         timeout=aiohttp.ClientTimeout(total=timeout),
                     ) as response:
                         if response.status != 200:
-                            logger.warning(f"[cloudflare_imgbed_random] 请求失败，状态码: {response.status}")
+                            logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 请求失败，状态码: {response.status}")
                         else:
                             response_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
                             if response_type.startswith("image/") or response_type.startswith("video/"):
@@ -257,7 +257,7 @@ class CloudflareImgbedRandomPlugin(Star):
 
                             body = await response.content.read(MAX_RESPONSE_BYTES + 1)
                             if len(body) > MAX_RESPONSE_BYTES:
-                                logger.warning("[cloudflare_imgbed_random] API 响应超过大小限制")
+                                logger.warning("[astrbot_plugin_cloudflare_imgbed_random] API 响应超过大小限制")
                             else:
                                 text = body.decode(response.charset or "utf-8", errors="replace").strip()
                                 media_value = None
@@ -273,16 +273,16 @@ class CloudflareImgbedRandomPlugin(Star):
                                 media_url = self._resolve_media_url(media_value, str(response.url))
                                 if media_url:
                                     return media_url
-                                logger.warning("[cloudflare_imgbed_random] API 未返回有效媒体 URL")
+                                logger.warning("[astrbot_plugin_cloudflare_imgbed_random] API 未返回有效媒体 URL")
                 except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
-                    logger.warning(f"[cloudflare_imgbed_random] 第{attempt + 1}次请求失败: {exc}")
+                    logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 第{attempt + 1}次请求失败: {exc}")
                 except Exception as exc:
-                    logger.error(f"[cloudflare_imgbed_random] 第{attempt + 1}次请求发生未预期错误: {exc}")
+                    logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 第{attempt + 1}次请求发生未预期错误: {exc}")
 
                 if attempt < retry_count:
                     await asyncio.sleep(min(2 ** attempt, 8))
 
-        logger.error(f"[cloudflare_imgbed_random] 所有{retry_count + 1}次请求均失败")
+        logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 所有{retry_count + 1}次请求均失败")
         return None
 
     @filter.command("随机图")
@@ -324,7 +324,7 @@ class CloudflareImgbedRandomPlugin(Star):
             else:
                 yield event.plain_result(f"随机媒体发送成功: {media_url}")
         except Exception as exc:
-            logger.error(f"[cloudflare_imgbed_random] 命令处理失败: {exc}")
+            logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 命令处理失败: {exc}")
             yield event.plain_result("处理随机媒体时出错，请稍后重试")
 
     @filter.llm_tool(name="sendRandomMedia")
@@ -359,8 +359,8 @@ class CloudflareImgbedRandomPlugin(Star):
             async for result in self._handle_media(event, content_type, directory):
                 yield result
         except Exception as exc:
-            logger.error(f"[cloudflare_imgbed_random] LLM工具调用失败: {exc}")
+            logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] LLM工具调用失败: {exc}")
             yield event.plain_result("LLM工具调用失败，请稍后重试")
 
     async def terminate(self):
-        logger.info("[cloudflare_imgbed_random] 插件已卸载")
+        logger.info("[astrbot_plugin_cloudflare_imgbed_random] 插件已卸载")

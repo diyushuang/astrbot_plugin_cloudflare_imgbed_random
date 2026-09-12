@@ -1,8 +1,9 @@
-name: cloudflare_imgbed_random
-version: 1.2.1
-description: 从CloudFlare ImgBed图床中获取随机图片
-author: diyushuang
+name: astrbot_plugin_cloudflare_imgbed_random
 display_name: CloudFlare ImgBed随机图
+desc: 从CloudFlare ImgBed图床中获取随机图片
+version: 1.2.2
+author: diyushuang
+repo: https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random
 support_platforms:
   - aiocqhttp
   - qq_official
@@ -10,4 +11,4 @@ support_platforms:
   - wecom
   - lark
   - discord
-astrbot_version: ">=4.16,<5"
+astrbot_version: >=4.16,<5
