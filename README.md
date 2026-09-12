@@ -2,6 +2,8 @@
 
 <div align="center">
 
+[![Test](https://github.com/diyushuang/suijitu/actions/workflows/test.yml/badge.svg)](https://github.com/diyushuang/suijitu/actions/workflows/test.yml)
+
 ![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.16-blue)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -33,6 +35,7 @@
 - 🤖 **LLM 工具集成**：支持 AI 模型调用插件功能
 - 🔄 **智能重试**：自动重试失败的请求，提高成功率
 - 🌐 **相对路径处理**：自动处理 API 返回的相对路径 URL
+- 🛡️ **安全校验**：对 API 域名、返回 URL 和响应体大小做校验，拒绝异常响应
 - 📝 **详细日志**：完善的日志记录，便于调试和问题定位
 - ⚡ **异步处理**：使用异步编程，提高性能和响应速度
 
@@ -178,15 +181,9 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 | `directory` | string | 否 | 目录路径，指定从哪个目录获取随机媒体 |
 | `content_type` | string | 否 | 内容类型，指定获取图片或视频，可选值：image, video |
 
-#### 返回格式
+#### 回复形式
 
-```json
-{
-  "success": true,
-  "media_url": "https://your-domain/file/example.jpg",
-  "message": "随机媒体发送成功"
-}
-```
+工具调用后，插件以聊天消息形式回复：同一条消息中包含文案和媒体本身。开启 `showFileInfo` 时文案附带文件名（如 `🖼️ example.jpg`），关闭时为"随机图片发送成功"/"随机视频发送成功"；获取失败时回复失败提示。
 
 ---
 
@@ -204,9 +201,11 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 |--------|------|------|
 | `dir` | string | 指定目录，使用相对路径 |
 | `content` | string | 文件类型过滤：`image`、`video` |
-| `type` | string | 返回内容类型：`img` 直接返回图片 |
-| `form` | string | 响应格式：`text` 直接返回文本 |
-| `orientation` | string | 图片方向筛选：`landscape`、`portrait`、`square`、`auto` |
+| `type` | string | 返回内容类型：`url` 返回媒体地址（本插件使用）、`img` 直接返回图片 |
+| `form` | string | 响应格式：`json` 返回 JSON（本插件使用）、`text` 直接返回文本 URL |
+| `orientation` | string | 图片方向筛选：`landscape`、`portrait`、`square`、`auto`（上游支持，本插件未使用） |
+
+本插件固定发送 `type=url&form=json`，并同时兼容直接返回媒体和纯文本 URL 两种响应形态。
 
 ### 响应格式
 
@@ -226,16 +225,19 @@ suijitu/
 ├── metadata.yaml        # 插件元数据
 ├── _conf_schema.json    # 配置 Schema
 ├── requirements.txt     # 依赖列表
-├── tests/                # 单元测试
-└── README.md           # 项目文档
+├── CHANGELOG.md         # 更新日志
+├── .github/workflows/   # GitHub Actions 持续集成
+├── tests/               # 单元测试
+└── README.md            # 项目文档
 ```
 
 ### 核心功能
 
-1. **配置加载**：从 AstrBot 配置系统加载插件配置
-2. **媒体获取**：通过 HTTP 请求获取随机媒体 URL
-3. **命令处理**：处理用户发送的命令并返回结果
-4. **LLM 工具**：注册 LLM 工具供 AI 模型调用
+1. **配置加载**：从 AstrBot 配置系统加载并规范化插件配置（域名、超时、重试、开关等）
+2. **媒体获取**：请求图床随机接口，带指数退避重试，兼容 JSON、直接返回媒体和纯文本 URL 三种响应
+3. **URL 校验**：返回地址必须为合法 HTTP(S) 且不含凭据，相对路径自动拼接为绝对地址
+4. **文案构建**：从媒体 URL 解析文件名，生成附带文件名的发送文案（可经 `showFileInfo` 关闭）
+5. **命令与 LLM 双入口**：`/随机图`、`/随机视频` 命令与 `sendRandomMedia` LLM 工具共用同一处理流程
 
 ### 技术栈
 
@@ -275,6 +277,12 @@ suijitu/
 - 检查 AstrBot 版本是否支持 LLM 工具
 - 确认插件已正确加载
 - 查看 AstrBot 日志获取详细错误信息
+
+### 5. 为什么有时只显示"随机图片发送成功"而没有文件名
+
+**说明**：
+- 媒体 URL 末段没有扩展名（如直链为随机 ID 形式）时，插件无法识别文件名，自动回退为默认文案
+- 配置项 `showFileInfo` 关闭时同样只显示默认文案
 
 ---
 

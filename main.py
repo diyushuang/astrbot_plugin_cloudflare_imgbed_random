@@ -1,3 +1,10 @@
+"""AstrBot CloudFlare ImgBed 随机图插件。
+
+数据流：加载插件配置 → 请求图床随机接口
+（GET {imgbedDomain}{apiEndpoint}?type=url&form=json[&dir=][&content=]）
+→ 校验并解析返回的媒体 URL → 以「文件名文案 + 图片/视频」的形式在同一条消息中发送。
+"""
+
 import asyncio
 import json
 import re
@@ -11,7 +18,9 @@ from astrbot.api.message_components import Image, Plain, Video
 from astrbot.api.star import Context, Star, register
 
 
+# API 响应体大小上限，超过则视为异常响应并丢弃
 MAX_RESPONSE_BYTES = 1024 * 1024
+# 命令/LLM 工具允许的内容类型，以及用于从 URL 识别媒体类型的扩展名集合
 ALLOWED_CONTENT_TYPES = {"image", "video"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp", ".ts"}
@@ -123,6 +132,11 @@ class CloudflareImgbedRandomPlugin(Star):
         return directory, "video" if keyword in {"随机视频", "随机影片"} else "image"
 
     def _build_api_url(self) -> Optional[str]:
+        """拼接图床随机接口地址。
+
+        校验域名必须是合法 HTTP(S)、不含账号密码/查询参数/片段，接口路径必须是
+        相对路径；任一条件不满足时记录错误日志并返回 None。
+        """
         domain = self.settings.get("imgbedDomain", "").rstrip("/")
         endpoint = self.settings.get("apiEndpoint", "/random").strip()
         parsed_domain = urlparse(domain)
@@ -146,6 +160,11 @@ class CloudflareImgbedRandomPlugin(Star):
 
     @staticmethod
     def _resolve_media_url(value: str, response_url: str) -> Optional[str]:
+        """把 API 返回的媒体地址解析为绝对 URL。
+
+        相对路径会以响应地址为基准拼接；仅接受合法 HTTP(S) 且不含账号密码的
+        地址，其余一律返回 None。
+        """
         if not isinstance(value, str):
             return None
         value = value.strip()
@@ -183,7 +202,12 @@ class CloudflareImgbedRandomPlugin(Star):
         return f"{icon} {filename}"
 
     async def _get_random_media(self, directory=None, content_type=None):
-        """获取并校验随机媒体 URL。"""
+        """获取并校验随机媒体 URL。
+
+        带指数退避的重试机制；兼容三种响应形态：直接返回图片/视频
+        （Content-Type 为 image/* 或 video/*）、JSON（顶层 url 或 data.url）、
+        纯文本 URL。全部尝试失败时返回 None。
+        """
         if not self.settings:
             await self._load_config()
 
@@ -274,6 +298,11 @@ class CloudflareImgbedRandomPlugin(Star):
             yield result
 
     async def _handle_media(self, event: AstrMessageEvent, content_type=None, directory=None):
+        """处理随机媒体请求：解析消息中的目录/类型，获取媒体后按类型发送。
+
+        文案由 _build_media_caption 生成（附带文件名），与图片/视频在
+        同一条消息中发送；无法识别媒体类型时以纯文本回退。
+        """
         try:
             message = self._get_message_text(event)
             parsed_directory, parsed_type = self._extract_directory(message) if message else (None, None)
