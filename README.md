@@ -27,7 +27,7 @@
 ### ✨ 功能特性
 
 - 🎲 **随机媒体获取**：从 CloudFlare ImgBed 图床获取随机图片或视频
-- 🏷️ **目录与文件名展示**：发送随机媒体时附带所在的文件夹目录和文件名
+- 🏷️ **文件名展示**：发送随机媒体时附带图片/视频文件名
 - 🔐 **API Token 鉴权**：支持需要鉴权的 API 接口
 - 📁 **目录选择**：支持从指定目录获取随机媒体
 - 🤖 **LLM 工具集成**：支持 AI 模型调用插件功能
@@ -96,7 +96,7 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 | `timeout` | API 请求超时时间（秒） | `10` | `10` |
 | `retryCount` | API 请求重试次数 | `3` | `3` |
 | `enableLLM` | 是否启用 LLM 工具调用 | `true` | `true` |
-| `showFileInfo` | 发送时是否附带目录和文件名 | `true` | `true` |
+| `showFileInfo` | 发送时是否附带文件名 | `true` | `true` |
 
 > 配置了 `apiToken` 时，`imgbedDomain` 必须使用 HTTPS。`retryCount` 表示失败后的重试次数，因此总请求次数为 `retryCount + 1`。
 
@@ -120,12 +120,11 @@ git clone https://github.com/diyushuang/suijitu.git /path/to/astrbot/data/plugin
 /随机视频
 ```
 
-#### 消息附带目录和文件名
+#### 消息附带文件名
 
-发送随机媒体时，消息会附带图片/视频所在的文件夹目录和文件名，方便知道图片来源：
+发送随机媒体时，消息会附带图片/视频的文件名，方便知道图片来源：
 
 ```
-📁 10、商务宣传
 🖼️ Guerlain.jpg
 ```
 
@@ -280,6 +279,11 @@ suijitu/
 ---
 
 ## 📝 更新日志
+
+### v1.2.1 (2026-09-12)
+
+**调整**
+- 🔧 发送随机媒体时不再显示文件夹目录，只显示文件名
 
 ### v1.2.0 (2026-09-12)
 

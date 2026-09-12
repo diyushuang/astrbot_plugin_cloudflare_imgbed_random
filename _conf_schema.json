@@ -43,9 +43,9 @@
     "default": true
   },
   "showFileInfo": {
-    "description": "发送时附带目录和文件名",
+    "description": "发送时附带文件名",
     "type": "bool",
-    "hint": "开启后随机图片/视频消息会附带所在的文件夹目录和文件名",
+    "hint": "开启后随机图片/视频消息会附带图片文件名",
     "default": true
   }
 }

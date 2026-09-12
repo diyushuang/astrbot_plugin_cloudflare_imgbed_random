@@ -17,7 +17,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", "
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp", ".ts"}
 
 
-@register("cloudflare_imgbed_random", "", "从CloudFlare ImgBed图床中获取随机图片", "1.2.0")
+@register("cloudflare_imgbed_random", "", "从CloudFlare ImgBed图床中获取随机图片", "1.2.1")
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -160,39 +160,26 @@ class CloudflareImgbedRandomPlugin(Star):
         return media_url
 
     @staticmethod
-    def _extract_media_info(media_url: str):
-        """从媒体 URL 中提取目录和文件名，无法识别时返回 None。
-
-        CloudFlare ImgBed 直链形如 /file/目录/文件名.jpg，其中 /file/ 是
-        固定路由前缀，不作为图片目录。
-        """
+    def _extract_media_filename(media_url: str):
+        """从媒体 URL 中提取文件名，无法识别时返回 None。"""
         try:
             path = unquote(urlparse(media_url).path)
             segments = [seg for seg in path.split("/") if seg]
-            if not segments:
-                return None
-            filename = segments[-1]
-            if "." not in filename:
-                return None
-            dirs = segments[:-1]
-            if dirs and dirs[0] == "file":
-                dirs = dirs[1:]
-            return "/".join(dirs), filename
+            if segments and "." in segments[-1]:
+                return segments[-1]
+            return None
         except Exception:
             return None
 
     def _build_media_caption(self, media_url: str, kind: str) -> str:
-        """构建随媒体一起发送的文案，附带目录和文件名。"""
+        """构建随媒体一起发送的文案，附带文件名。"""
         default_caption = f"随机{kind}发送成功"
         if not self.settings.get("showFileInfo", True):
             return default_caption
-        info = self._extract_media_info(media_url)
-        if not info:
+        filename = self._extract_media_filename(media_url)
+        if not filename:
             return default_caption
-        folder, filename = info
         icon = "🖼️" if kind == "图片" else "🎬"
-        if folder:
-            return f"📁 {folder}\n{icon} {filename}"
         return f"{icon} {filename}"
 
     async def _get_random_media(self, directory=None, content_type=None):
