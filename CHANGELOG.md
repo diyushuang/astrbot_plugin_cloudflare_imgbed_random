@@ -7,8 +7,11 @@
 - ⚠️ 已安装用户需卸载后重新安装本插件，插件配置会按新插件名重新保存
 
 **调整**
-- 📋 `metadata.yaml` 规范化：`description` 字段改为 `desc`，新增 `repo` 字段，`astrbot_version` 按官方指南去除引号
+- 📋 `metadata.yaml` 规范化：`description` 字段改为 `desc`，新增 `repo` 字段，`astrbot_version` 按官方示例以双引号包裹版本约束
 - ✍️ 补全 `@register` 注册装饰器中的作者信息
+
+**修复**
+- 🐛 修复 `astrbot_version` 因去除引号导致 `metadata.yaml` 解析失败（YAML 将行首 `>` 视为块标量指示符），面板安装插件时报「metadata.yaml 格式错误 / Plugin repository validation failed」的问题
 
 ## v1.2.1 (2026-09-12)
 

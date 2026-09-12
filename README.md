@@ -295,7 +295,7 @@ astrbot_plugin_cloudflare_imgbed_random/
 - ⚠️ 已安装用户需卸载后重新安装本插件，插件配置会按新插件名重新保存
 
 **调整**
-- 📋 `metadata.yaml` 规范化：`description` 字段改为 `desc`，新增 `repo` 字段，`astrbot_version` 按官方指南去除引号
+- 📋 `metadata.yaml` 规范化：`description` 字段改为 `desc`，新增 `repo` 字段，`astrbot_version` 按官方示例以双引号包裹版本约束
 - ✍️ 补全 `@register` 注册装饰器中的作者信息
 
 ### v1.2.1 (2026-09-12)
