@@ -1140,16 +1140,22 @@ class OneBotSendTests(unittest.TestCase):
         text_seg, image_seg = params["message"]
         self.assertEqual(text_seg["type"], "text")
         self.assertIn("pic.jpg", text_seg["data"]["text"])
-        self.assertNotIn("已压缩", text_seg["data"]["text"])
+        self.assertIn("已压缩", text_seg["data"]["text"])
         self.assertEqual(
             image_seg,
-            {"type": "image", "data": {"file": "https://img.example/file/pic.jpg"}},
+            {
+                "type": "image",
+                "data": {
+                    "file": "https://img.example/file/pic.jpg"
+                    "?width=1920&height=1920&fallback=original"
+                },
+            },
         )
         # 直传成功后不再产生消息链结果，并终止事件避免重复发送
         self.assertEqual(event.results, [])
         self.assertTrue(event.stopped)
 
-    def test_scaled_url_is_used_after_original_url_fails(self):
+    def test_original_url_is_used_after_scaled_url_fails(self):
         class FailFirstBot(self.FakeBot):
             def __init__(self):
                 super().__init__()
@@ -1171,10 +1177,10 @@ class OneBotSendTests(unittest.TestCase):
 
         self.assertEqual(len(bot.calls), 1)
         original_url = "https://img.example/file/pic.jpg"
-        second_url = "https://img.example/file/pic.jpg?width=1920&height=1920&fallback=original"
+        scaled_url = "https://img.example/file/pic.jpg?width=1920&height=1920&fallback=original"
         self.assertEqual(bot.attempt_count, 2)
-        self.assertEqual(bot.urls, [original_url, second_url])
-        self.assertEqual(bot.calls[0][1]["message"][1]["data"]["file"], second_url)
+        self.assertEqual(bot.urls, [scaled_url, original_url])
+        self.assertEqual(bot.calls[0][1]["message"][1]["data"]["file"], original_url)
         self.assertTrue(event.stopped)
 
     def test_private_message_uses_send_private_msg(self):

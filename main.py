@@ -207,7 +207,7 @@ def _migrate_legacy_config(config):
     "astrbot_plugin_cloudflare_imgbed_random",
     "diyushuang",
     "从CloudFlare ImgBed图床中获取随机图片",
-    "2.0.0",
+    "2.0.2",
 )
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -786,9 +786,12 @@ class CloudflareImgbedRandomPlugin(Star):
             if self._can_send_via_onebot(event):
                 onebot_attempted = True
                 original_url = self._normalize_onebot_media_url(media_url)
-                direct_candidates = [(base_caption, original_url)]
-                if target_url != original_url:
-                    direct_candidates.append((caption, target_url))
+                if send_mode == "scaled-url":
+                    target_url = self._build_scaled_media_url(original_url)
+                    direct_candidates = [(caption, target_url), (base_caption, original_url)]
+                else:
+                    target_url = original_url
+                    direct_candidates = [(base_caption, original_url)]
                 for direct_caption, direct_url in direct_candidates:
                     if await self._send_via_onebot(event, direct_caption, direct_url):
                         event.stop_event()

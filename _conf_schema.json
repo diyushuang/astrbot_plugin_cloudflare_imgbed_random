@@ -67,7 +67,7 @@
       "sendMode": {
         "type": "string",
         "description": "图片发送方式",
-        "hint": "scaled-url：通过 ImgBed 服务端等比缩放后发送（默认，需开启图片尺寸处理）；original-url：直传原图 URL；local-compress：插件下载后本地压缩",
+        "hint": "scaled-url：优先通过 ImgBed 服务端等比缩放后发送（默认，需开启图片尺寸处理）；original-url：直传原图 URL；local-compress：插件下载后本地压缩",
         "options": ["scaled-url", "original-url", "local-compress"],
         "default": "scaled-url"
       },
