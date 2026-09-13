@@ -1126,10 +1126,10 @@ class OneBotSendTests(unittest.TestCase):
     def test_group_message_uses_send_group_msg(self):
         bot = self.FakeBot()
         event = self.FakeEvent("/随机图", bot=bot, group_id="12345", self_id="99")
-        self._fake_media_source("https://img.example/file/pic.jpg")
+        self.plugin.settings["imgbed"]["domain"] = "https://img.example"
+        self._fake_media_source("http://img.example/file/pic.jpg")
         self._forbid_download()
         self._run(self.plugin._handle_media(event, "image"), event)
-        scaled_url = "https://img.example/file/pic.jpg?width=1920&height=1920&fallback=original"
 
         self.assertEqual(len(bot.calls), 1)
         action, params = bot.calls[0]
@@ -1140,10 +1140,41 @@ class OneBotSendTests(unittest.TestCase):
         text_seg, image_seg = params["message"]
         self.assertEqual(text_seg["type"], "text")
         self.assertIn("pic.jpg", text_seg["data"]["text"])
-        self.assertIn("已压缩", text_seg["data"]["text"])
-        self.assertEqual(image_seg, {"type": "image", "data": {"file": scaled_url}})
+        self.assertNotIn("已压缩", text_seg["data"]["text"])
+        self.assertEqual(
+            image_seg,
+            {"type": "image", "data": {"file": "https://img.example/file/pic.jpg"}},
+        )
         # 直传成功后不再产生消息链结果，并终止事件避免重复发送
         self.assertEqual(event.results, [])
+        self.assertTrue(event.stopped)
+
+    def test_scaled_url_is_used_after_original_url_fails(self):
+        class FailFirstBot(self.FakeBot):
+            def __init__(self):
+                super().__init__()
+                self.attempt_count = 0
+                self.urls = []
+
+            async def call_action(self, action, **params):
+                self.attempt_count += 1
+                self.urls.append(params["message"][1]["data"]["file"])
+                if self.attempt_count == 1:
+                    raise RuntimeError("original url rejected")
+                return await super().call_action(action, **params)
+
+        bot = FailFirstBot()
+        event = self.FakeEvent("/随机图", bot=bot, group_id="12345")
+        self._fake_media_source("https://img.example/file/pic.jpg")
+        self._forbid_download()
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        self.assertEqual(len(bot.calls), 1)
+        original_url = "https://img.example/file/pic.jpg"
+        second_url = "https://img.example/file/pic.jpg?width=1920&height=1920&fallback=original"
+        self.assertEqual(bot.attempt_count, 2)
+        self.assertEqual(bot.urls, [original_url, second_url])
+        self.assertEqual(bot.calls[0][1]["message"][1]["data"]["file"], second_url)
         self.assertTrue(event.stopped)
 
     def test_private_message_uses_send_private_msg(self):
@@ -1184,18 +1215,64 @@ class OneBotSendTests(unittest.TestCase):
         self.assertEqual(kind, "chain")
         self.assertEqual(chain[1], {"type": "url", "url": scaled_url})
 
-    def test_call_action_failure_falls_back_to_chain_result(self):
+    def test_call_action_failure_falls_back_to_local_bytes(self):
         bot = self.FakeBot(fail=True)
         event = self.FakeEvent("/随机图", bot=bot, group_id="12345")
         self._fake_media_source("https://img.example/file/pic.jpg")
-        self._forbid_download()
+        downloaded = []
+
+        async def fake_download(url):
+            downloaded.append(url)
+            return b"original-bytes"
+
+        self.plugin._download_image = fake_download
+        self.plugin._prepare_image = lambda _data: (b"jpeg-bytes", True)
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        kind, chain = event.results[0]
+        self.assertEqual(kind, "chain")
+        self.assertEqual(downloaded, ["https://img.example/file/pic.jpg"])
+        self.assertIn("已压缩", chain[0])
+        self.assertEqual(chain[1], {"type": "bytes", "data": b"jpeg-bytes"})
+        self.assertFalse(event.stopped)
+
+    def test_call_action_failure_falls_back_to_url_when_download_fails(self):
+        bot = self.FakeBot(fail=True)
+        event = self.FakeEvent("/随机图", bot=bot, group_id="12345")
+        self._fake_media_source("https://img.example/file/pic.jpg")
+
+        async def fake_download(_url):
+            return None
+
+        self.plugin._download_image = fake_download
         self._run(self.plugin._handle_media(event, "image"), event)
         scaled_url = "https://img.example/file/pic.jpg?width=1920&height=1920&fallback=original"
 
         kind, chain = event.results[0]
         self.assertEqual(kind, "chain")
         self.assertEqual(chain[1], {"type": "url", "url": scaled_url})
-        self.assertFalse(event.stopped)
+
+    def test_call_action_failure_sends_original_bytes_in_original_url_mode(self):
+        bot = self.FakeBot(fail=True)
+        event = self.FakeEvent("/随机图", bot=bot, group_id="12345")
+        self.plugin.settings["image"]["sendMode"] = "original-url"
+        self._fake_media_source("https://img.example/file/pic.jpg")
+
+        async def fake_download(_url):
+            return b"original-bytes"
+
+        self.plugin._download_image = fake_download
+
+        def fail_prepare(_data):
+            raise AssertionError("original-url 回退不应触发本地压缩")
+
+        self.plugin._prepare_image = fail_prepare
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        kind, chain = event.results[0]
+        self.assertEqual(kind, "chain")
+        self.assertNotIn("已压缩", chain[0])
+        self.assertEqual(chain[1], {"type": "bytes", "data": b"original-bytes"})
 
     def test_unparseable_extension_falls_back_to_compression(self):
         for url in (

@@ -617,21 +617,30 @@ class CloudflareImgbedRandomPlugin(Star):
             return data, False
         return compressed, True
 
-    async def _get_sendable_image(self, media_url: str):
+    async def _get_sendable_image(
+        self,
+        media_url: str,
+        *,
+        allow_processing: bool = True,
+        raw_fallback: bool = False,
+    ):
         """按配置下载并压缩图片，返回 (待发送字节, 是否压缩)。
 
-        压缩关闭、Pillow 不可用或任一环节失败时返回 None，
-        由调用方回退为 Image.fromURL 直发。
+        压缩关闭、Pillow 不可用或下载失败时返回 None，由调用方回退为
+        Image.fromURL 直发；raw_fallback=True 时解码失败改为返回原字节。
         """
-        if not self.settings.get("image", {}).get("enableProcessing", True):
+        if allow_processing and not self.settings.get("image", {}).get("enableProcessing", True):
             return None
         data = await self._download_image(media_url)
         if data is None:
             return None
+        if not allow_processing:
+            return data, False
         prepared = await asyncio.to_thread(self._prepare_image, data)
         if prepared is None:
-            # 解码失败回退 URL 直发，同样提示协议端宽高解析风险
             self._warn_qq_preview_risk(data)
+            if raw_fallback:
+                return data, False
         return prepared
 
     @staticmethod
@@ -655,6 +664,26 @@ class CloudflareImgbedRandomPlugin(Star):
         except Exception:
             return False
         return getattr(event, "bot", None) is not None
+
+    def _normalize_onebot_media_url(self, media_url: str) -> str:
+        """OneBot 直传前把同域 HTTP 地址升级为配置域名的 HTTPS 形式。
+
+        部分 ImgBed API 会返回 HTTP 地址，NapCat 下载时需要跟随 301 到
+        HTTPS；直接使用 HTTPS 可减少一次跳转，也避免个别协议端在跳转时
+        丢失查询参数或被 CDN 拒绝。
+        """
+        try:
+            domain = urlparse(self.settings.get("imgbed", {}).get("domain", ""))
+            media = urlparse(media_url)
+        except Exception:
+            return media_url
+        if (
+            domain.scheme == "https"
+            and media.scheme == "http"
+            and media.netloc.lower() == domain.netloc.lower()
+        ):
+            return urlunsplit(("https", media.netloc, media.path, media.query, media.fragment))
+        return media_url
 
     async def _send_via_onebot(self, event: AstrMessageEvent, caption: str, media_url: str) -> bool:
         """用 OneBot 原生接口直接发送带 URL 的图片段，成功返回 True。
@@ -732,6 +761,7 @@ class CloudflareImgbedRandomPlugin(Star):
         image_settings = self.settings.get("image", {})
         send_mode = image_settings.get("sendMode", "scaled-url")
         target_url = media_url
+        base_caption = caption
 
         if (
             force_url
@@ -752,11 +782,37 @@ class CloudflareImgbedRandomPlugin(Star):
             caption += self._build_original_hint(media_url)
 
         if send_mode in {"scaled-url", "original-url"}:
-            if self._can_send_via_onebot(event) and await self._send_via_onebot(
-                event, caption, target_url
-            ):
-                event.stop_event()
-                return
+            onebot_attempted = False
+            if self._can_send_via_onebot(event):
+                onebot_attempted = True
+                original_url = self._normalize_onebot_media_url(media_url)
+                direct_candidates = [(base_caption, original_url)]
+                if target_url != original_url:
+                    direct_candidates.append((caption, target_url))
+                for direct_caption, direct_url in direct_candidates:
+                    if await self._send_via_onebot(event, direct_caption, direct_url):
+                        event.stop_event()
+                        return
+
+            if onebot_attempted:
+                prepared = await self._get_sendable_image(
+                    media_url,
+                    allow_processing=send_mode == "scaled-url",
+                    raw_fallback=True,
+                )
+                if prepared is not None:
+                    image_data, compressed = prepared
+                    self._log_image_send(image_data, compressed)
+                    if send_mode == "scaled-url" and compressed:
+                        fallback_caption = base_caption + self._build_original_hint(media_url)
+                    else:
+                        fallback_caption = base_caption
+                    yield event.chain_result([Plain(fallback_caption), Image.fromBytes(image_data)])
+                    return
+                logger.warning(
+                    "[astrbot_plugin_cloudflare_imgbed_random] 本地字节回退失败，最后回退消息链 URL"
+                )
+
             yield event.chain_result([Plain(caption), Image.fromURL(target_url)])
             return
 

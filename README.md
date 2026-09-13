@@ -17,10 +17,10 @@
 
 - 从 CloudFlare ImgBed 随机获取图片或视频
 - 三种图片发送模式：
-  - `scaled-url`：通过 ImgBed 官方 `width` / `height` / `fallback` 参数发送等比缩放图
+  - `scaled-url`：QQ 优先直传原 URL 保持真实宽高；原 URL 失败后再尝试 ImgBed 官方缩放 URL，其他平台使用缩放 URL
   - `original-url`：直传原 URL
   - `local-compress`：插件下载后经 Pillow 本地压缩
-- `scaled-url` 模式下自动标注「已压缩」，并附带 `/原图 文件名` 提示
+- 实际发送服务端缩放图或本地压缩图时自动标注「已压缩」，并附带 `/原图 文件名` 提示
 - `/原图` 命令始终重发未修改的原 URL
 - 支持会话级原图历史，最多保留最近 30 张
 - 支持 AstrBot LLM 工具调用
@@ -77,7 +77,7 @@
 
 | 模式 | 处理位置 | 说明 |
 |------|----------|------|
-| `scaled-url` | CloudFlare ImgBed 服务端 | 默认模式。通过 `?width={maxSide}&height={maxSide}&fallback=original` 请求等比缩放图 |
+| `scaled-url` | CloudFlare ImgBed 服务端 | 默认模式。QQ 先直传原 URL；失败后改用 `?width={maxSide}&height={maxSide}&fallback=original`；其他平台直接使用缩放 URL |
 | `original-url` | 无 | 直接发送原图 URL，速度最快，但可能占用更多带宽 |
 | `local-compress` | 插件本地 | 下载原图后经 Pillow 等比缩放并重编码为 JPEG |
 
@@ -157,8 +157,10 @@ v2.0.0 对配置结构做了破坏性重构：
 ### QQ 聊天气泡显示 1:1
 
 - 插件已按 NapCat `OB11MessageImage` 规范使用 URL 图片段
+- QQ 会优先直传未追加缩放参数的原 URL，避免落入字节消息后被部分 NapCat 版本解析为 1:1
 - AVIF/HEIC/SVG 等协议端无法解析宽高的格式会自动降级为本地压缩
-- 若仍异常，请升级 NapCat 到最新版本
+- 若仍显示 1:1，检查日志是否出现两次「OneBot 直传图片失败」；这表示原 URL 与缩放 URL 均被协议端拒绝，消息已进入最后的字节回退
+- 请升级 NapCat 到最新版本，或改用 `image.sendMode=original-url` 复测
 
 ### LLM 工具无法调用
 
