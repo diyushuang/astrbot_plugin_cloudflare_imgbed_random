@@ -29,7 +29,8 @@
 ### ✨ 功能特性
 
 - 🎲 **随机媒体获取**：从 CloudFlare ImgBed 图床获取随机图片或视频
-- 🗜️ **图片压缩发送**：随机图片先压缩（等比缩放 + JPEG 重编码）再发送，明显缩短发送延迟；失败自动回退原图直发
+- 🚀 **原图链接直传**：QQ（aiocqhttp）平台默认把原图链接直接交给协议端发送，聊天气泡显示真实比例，且免去下载与转码，发送最快
+- 🗜️ **可选压缩发送**：`imageSendMode=compress` 时先压缩（等比缩放 + JPEG 重编码）再发送，适用于协议端无法访问图床的场景；失败自动回退原图直发
 - 🖼️ **原图找回**：`/原图` 命令重发最近一张随机图片的原图，也可按文件名找回指定的某一张
 - 🏷️ **文件名展示**：发送随机媒体时附带图片/视频文件名
 - 🔐 **API Token 鉴权**：支持需要鉴权的 API 接口
@@ -102,11 +103,14 @@ git clone https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random.
 | `retryCount` | API 请求重试次数 | `3` | `3` |
 | `enableLLM` | 是否启用 LLM 工具调用 | `true` | `true` |
 | `showFileInfo` | 发送时是否附带文件名 | `true` | `true` |
-| `enableCompress` | 是否启用图片压缩发送 | `true` | `true` |
+| `imageSendMode` | 图片发送方式：`url` 直传链接 / `compress` 压缩后发送 | `url` | `url` |
+| `enableCompress` | `compress` 模式下是否启用图片压缩 | `true` | `true` |
 | `compressMaxSide` | 压缩后图片最长边（像素，等比缩放） | `1920` | `1920` |
 | `compressQuality` | JPEG 压缩质量（1-100） | `85` | `85` |
 
 > 配置了 `apiToken` 时，`imgbedDomain` 必须使用 HTTPS。`retryCount` 表示失败后的重试次数，因此总请求次数为 `retryCount + 1`。
+> 默认 `imageSendMode=url`，由 QQ 协议端自行下载图片，聊天气泡显示原始比例且发送最快。若协议端与图床网络不通（例如图床仅内网可达），请改为 `compress`。
+>
 > 图片压缩依赖 Pillow（安装插件时自动安装）；关闭 `enableCompress` 或压缩失败时自动回退为原图直发，不影响可用性。
 
 ---
@@ -153,9 +157,23 @@ git clone https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random.
 /随机视频 video/movies
 ```
 
-#### 图片压缩发送（默认开启）
+#### 图片发送方式
 
-开启 `enableCompress` 后，随机图片会先由插件下载原图并压缩（超过 `compressMaxSide` 的等比缩放到最长边限制，再按 `compressQuality` 质量重编码为 JPEG），然后以压缩后的字节发送，原图越大提速越明显。压缩图（非原图）会在文案中标注，并附带一条可直接复制的原图命令示范：
+插件提供两种发送方式，由 `imageSendMode` 配置控制。
+
+**`url` 直传链接（默认，推荐）**
+
+在 QQ（aiocqhttp）平台上，插件直接把原图链接交给协议端（NapCat 等），由协议端自行下载并解析出真实宽高。这样聊天气泡显示的就是图片的原始比例，同时省去插件下载、转码和 base64 编码的开销，发送延迟最低。
+
+以下情况会自动回退为标准消息链发送，不影响使用：
+
+- 非 aiocqhttp 平台（Telegram、Discord 等）
+- 图片格式为 AVIF/HEIC/SVG 等协议端无法解析宽高的格式（自动改用 `compress` 转成 JPEG，见常见问题 8）
+- 协议端接口调用失败
+
+**`compress` 压缩后发送**
+
+适用于协议端无法访问图床的场景（例如图床仅内网可达）。随机图片会先由插件下载原图并压缩（超过 `compressMaxSide` 的等比缩放到最长边限制，再按 `compressQuality` 质量重编码为 JPEG），然后以压缩后的字节发送，原图越大提速越明显。压缩图（非原图）会在文案中标注，并附带一条可直接复制的原图命令示范：
 
 ```
 🖼️ Guerlain.jpg（已压缩，发送 /原图 Guerlain.jpg 可获取原图）
@@ -172,7 +190,7 @@ git clone https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random.
 
 #### 获取原图
 
-发送以下命令重发**本会话最近一张**随机图片的原图（不压缩）：
+发送以下命令重发**本会话最近一张**随机图片的原图（始终直传原图链接，不压缩，不受 `imageSendMode` 影响）：
 
 ```
 /原图
@@ -279,7 +297,7 @@ astrbot_plugin_cloudflare_imgbed_random/
 2. **媒体获取**：请求图床随机接口，带指数退避重试，兼容 JSON、直接返回媒体和纯文本 URL 三种响应
 3. **URL 校验**：返回地址必须为合法 HTTP(S) 且不含凭据，相对路径自动拼接为绝对地址
 4. **文案构建**：从媒体 URL 解析文件名，生成附带文件名的发送文案（可经 `showFileInfo` 关闭）
-5. **图片压缩**：下载原图字节流（同域才附带 Token、限 30MB），Pillow 等比缩放 + JPEG 重编码后在 local 线程池压缩，经 `Image.fromBytes` 发送，失败自动回退 URL 直发
+5. **图片发送**：`url` 模式（默认）在 aiocqhttp 平台经 OneBot `send_group_msg`/`send_private_msg` 直传原图链接，由协议端解析真实宽高；`compress` 模式下载原图字节流（同域才附带 Token、限 30MB），Pillow 等比缩放 + JPEG 重编码后在独立线程压缩，经 `Image.fromBytes` 发送；任一环节失败均回退标准消息链 URL 直发
 6. **原图历史**：按会话记录最近发送的随机图片（文件名 → 原图 URL），`/原图` 命令支持最近一张与按文件名匹配找回
 7. **命令与 LLM 双入口**：`/随机图`、`/随机视频` 命令与 `sendRandomMedia` LLM 工具共用同一处理流程
 
@@ -332,9 +350,9 @@ astrbot_plugin_cloudflare_imgbed_random/
 ### 6. 为什么收到的图片和图床里的原图不完全一致
 
 **说明**：
-- 开启 `enableCompress` 后发送的是压缩图（等比缩放 + JPEG 重编码），用于缩短发送延迟
+- 默认 `imageSendMode=url` 直传原图链接，收到的就是原图；仅 `compress` 模式或 AVIF/HEIC 等格式降级时才是压缩图（等比缩放 + JPEG 重编码）
 - 需要原图时发送 `/原图` 即可重发最近一张随机图片的原图，或用 `/原图 文件名` 找回指定图片
-- 若不想压缩，可在插件配置中关闭 `enableCompress`
+- 若不想压缩，保持 `imageSendMode=url`，或在插件配置中关闭 `enableCompress`
 
 ### 7. 压缩后画质不满意
 
@@ -347,18 +365,30 @@ astrbot_plugin_cloudflare_imgbed_random/
 
 **说明**：
 - QQ 聊天气泡的显示比例由消息元数据中声明的宽高决定，点开查看时才加载真实图片
-- 经 AstrBot 发送图片时，消息里只携带图片字节数据、不带宽高信息，宽高由 QQ 协议端（NapCat 等）自行解析
-- NapCat 等协议端只支持解析 JPEG/PNG/GIF/WebP/BMP/TIFF 的宽高，解析失败时以固定的 1024×1024 占位，气泡就显示成 1:1
-- 常见诱因：NapCat 版本过旧对 base64 图片宽高解析有缺陷，或图床输出 AVIF/HEIC 等协议端不支持的格式
+- AstrBot 的 aiocqhttp 适配器会把**所有**图片消息段统一转成 base64 再发给协议端，因此 `fromURL`、`fromFileSystem`、`fromBytes` 三种写法最终效果相同，消息里都不带宽高信息
+- 协议端（NapCat 等）只能从 base64 字节里嗅探宽高，遇到 AVIF/HEIC 等无法解析的格式时以固定的 1024×1024 占位，气泡就显示成 1:1
 
 **解决方案**：
-- 将 NapCat 升级到最新版，重发 `/随机图`、`/原图` 验证气泡比例
-- 插件已内置防护：发送前按文件头识别格式并在 AstrBot 日志中记录（格式/是否压缩/大小），发现协议端无法解析的格式会输出 WARNING；压缩流程会把 AVIF/HEIC 等格式自动转成 JPEG（需已安装 pillow-avif-plugin / pillow-heif 才能解码此类格式），无法解码时回退原图直发
+- 插件自 v1.4.0 起默认 `imageSendMode=url`，绕开图片消息段、经 OneBot 接口直接把原图链接交给协议端，由协议端自行下载并解析真实宽高，从根本上解决该问题
+- 若仍显示 1:1，请确认协议端能访问图床链接（与 AstrBot 同网络环境），并将 NapCat 升级到最新版
+- AVIF/HEIC/SVG 等格式会自动降级为下载转 JPEG 后发送（解码 AVIF/HEIC 需已安装 pillow-avif-plugin / pillow-heif）
 - 也可让图床直接输出 JPEG/PNG 格式
 
 ---
 
 ## 📝 更新日志
+
+## v1.4.0 (2026-09-13)
+
+**修复**
+- 🐛 修复 QQ 图片聊天气泡显示 1:1：AstrBot 的 aiocqhttp 适配器会把所有图片消息段统一转成 base64，协议端解析宽高失败后以 1024×1024 占位。插件改用 OneBot 原生 `send_group_msg` / `send_private_msg` 直传图片 URL，由协议端自行下载并解析真实宽高，并透传 `self_id` 支持多账号路由
+
+**优化改进**
+- ⚡ 默认 `imageSendMode=url`，跳过插件侧下载、压缩与 base64 编码开销，图片发送延迟更低；非 aiocqhttp 平台或协议端调用失败时自动回退标准消息链，不影响消息可达性
+- 🛡️ AVIF/HEIC/SVG 等协议端无法解析宽高的格式自动降级为下载转 JPEG；`/原图` 命令始终直传原图 URL，且与 `/随机图` 共用统一发送链路
+- ⚙️ 新增配置项 `imageSendMode`（`url` / `compress`），原有 `enableCompress`、`compressMaxSide`、`compressQuality` 在 `compress` 模式下继续生效
+- 📖 README 更新图片发送方式说明与常见问题 8，说明根因、回退链路与适用场景
+- ✅ 单元测试扩展至 58 个：覆盖 OneBot 直传群聊/私聊、平台探测、调用失败回退、非常见格式降级、模式切换与 `/原图` 直传
 
 ### v1.3.1 (2026-09-13)
 

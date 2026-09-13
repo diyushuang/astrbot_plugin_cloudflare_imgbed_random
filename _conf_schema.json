@@ -48,10 +48,17 @@
     "hint": "开启后随机图片/视频消息会附带图片文件名",
     "default": true
   },
+  "imageSendMode": {
+    "description": "图片发送方式",
+    "type": "string",
+    "hint": "url：直接把原图链接交给QQ协议端发送，速度最快且聊天气泡显示原始比例（推荐）；compress：插件先下载压缩再发送，适用于协议端无法访问图床的情况。AVIF/HEIC等协议端无法解析的格式会自动改用compress",
+    "options": ["url", "compress"],
+    "default": "url"
+  },
   "enableCompress": {
-    "description": "启用图片压缩",
+    "description": "compress 模式下启用图片压缩",
     "type": "bool",
-    "hint": "开启后随机图片先下载压缩再发送，缩短发送延迟；需要安装 Pillow，失败时自动回退为原图直发。可用 /原图 命令找回原图",
+    "hint": "仅在 imageSendMode=compress 时生效：开启后随机图片先下载压缩再发送；需要安装 Pillow，失败时自动回退为原图直发。可用 /原图 命令找回原图",
     "default": true
   },
   "compressMaxSide": {

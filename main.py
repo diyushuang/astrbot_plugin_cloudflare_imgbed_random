@@ -4,8 +4,11 @@
 （GET {imgbedDomain}{apiEndpoint}?type=url&form=json[&dir=][&content=]）
 → 校验并解析返回的媒体 URL → 以「文件名文案 + 图片/视频」的形式在同一条消息中发送。
 
-图片默认先由插件下载原图并经 Pillow 压缩（缩放 + JPEG 重编码）后以字节发送，
-失败自动回退为 URL 直发；/原图 命令可找回本会话最近发送图片的原图。
+图片默认在 aiocqhttp（QQ）平台直接把原图 URL 交给协议端（NapCat 等）发送，
+由协议端自行下载并解析真实宽高，避免 AstrBot 统一转 base64 后协议端解析失败、
+QQ 聊天气泡显示成 1:1；其余平台与失败情形回退为标准消息链发送。
+imageSendMode=compress 时改为下载原图并经 Pillow 压缩后发送，
+/原图 命令可找回本会话最近发送图片的原图。
 """
 
 import asyncio
@@ -46,9 +49,16 @@ VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m
 # QQ 协议端（NapCat 等）能从图片字节解析出宽高的格式集合；解析失败时协议端
 # 会以固定 1024x1024 占位，QQ 聊天气泡里图片就显示成 1:1（点开查看才正常）
 NAPCAT_PARSEABLE_FORMATS = frozenset({"JPEG", "PNG", "GIF", "WEBP", "BMP", "TIFF"})
+# 与 NAPCAT_PARSEABLE_FORMATS 对应的扩展名；URL 直传时据此判断协议端能否解析宽高，
+# 其余扩展名（.avif/.heic/.svg 等）降级为下载压缩转 JPEG 后发送
+NAPCAT_PARSEABLE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff"})
+# 图片发送模式：url=直接把原图 URL 交给协议端（最快、宽高准确）；compress=下载压缩后发送
+IMAGE_SEND_MODES = {"url", "compress"}
+# 走 OneBot 原生接口直传的平台名，其余平台一律使用标准消息链发送
+AIOCQHTTP_PLATFORM_NAME = "aiocqhttp"
 
 
-@register("astrbot_plugin_cloudflare_imgbed_random", "diyushuang", "从CloudFlare ImgBed图床中获取随机图片", "1.3.1")
+@register("astrbot_plugin_cloudflare_imgbed_random", "diyushuang", "从CloudFlare ImgBed图床中获取随机图片", "1.4.0")
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -94,6 +104,10 @@ class CloudflareImgbedRandomPlugin(Star):
             if isinstance(enable_compress, str):
                 enable_compress = enable_compress.strip().lower() not in {"false", "0", "no", "off"}
 
+            image_send_mode = str(config.get("imageSendMode") or "url").strip().lower()
+            if image_send_mode not in IMAGE_SEND_MODES:
+                image_send_mode = "url"
+
             compress_max_side = config.get("compressMaxSide", 1920)
             try:
                 compress_max_side = int(compress_max_side)
@@ -118,6 +132,7 @@ class CloudflareImgbedRandomPlugin(Star):
                 "enableLLM": enable_llm,
                 "showFileInfo": show_file_info,
                 "enableCompress": enable_compress,
+                "imageSendMode": image_send_mode,
                 "compressMaxSide": compress_max_side,
                 "compressQuality": compress_quality,
             }
@@ -135,6 +150,7 @@ class CloudflareImgbedRandomPlugin(Star):
                 "enableLLM": True,
                 "showFileInfo": True,
                 "enableCompress": True,
+                "imageSendMode": "url",
                 "compressMaxSide": 1920,
                 "compressQuality": 85,
             }
@@ -423,6 +439,65 @@ class CloudflareImgbedRandomPlugin(Star):
             self._warn_qq_preview_risk(data)
         return prepared
 
+    @staticmethod
+    def _is_napcat_parseable_url(media_url: str) -> bool:
+        """判断 URL 指向的图片格式能否被 QQ 协议端解析出宽高。
+
+        扩展名不在白名单内（.avif/.heic/.svg 等）时返回 False，由调用方降级为
+        下载压缩转 JPEG，避免协议端解析失败后以 1024x1024 占位显示成 1:1。
+        """
+        try:
+            path = unquote(urlparse(media_url).path).lower()
+        except Exception:
+            return False
+        return any(path.endswith(ext) for ext in NAPCAT_PARSEABLE_EXTENSIONS)
+
+    def _can_send_via_onebot(self, event: AstrMessageEvent) -> bool:
+        """仅 aiocqhttp 平台且拿得到 bot 实例时才能走 OneBot 原生直传。"""
+        try:
+            if event.get_platform_name() != AIOCQHTTP_PLATFORM_NAME:
+                return False
+        except Exception:
+            return False
+        return getattr(event, "bot", None) is not None
+
+    async def _send_via_onebot(self, event: AstrMessageEvent, caption: str, media_url: str) -> bool:
+        """用 OneBot 原生接口直接发送带 URL 的图片段，成功返回 True。
+
+        绕开 AstrBot 的 Image 组件：aiocqhttp 适配器会把所有 Image 段统一转成
+        base64 再发给协议端，协议端只能从字节里嗅探宽高，失败就以 1024x1024
+        占位、QQ 聊天气泡显示成 1:1。直接下发 http URL 可让协议端自行下载并
+        解析出真实宽高，同时省去插件侧下载与 base64 膨胀的开销。
+        """
+        message = []
+        if caption:
+            message.append({"type": "text", "data": {"text": caption + "\n"}})
+        message.append({"type": "image", "data": {"file": media_url}})
+
+        params = {"message": message}
+        group_id = event.get_group_id()
+        if group_id:
+            action = "send_group_msg"
+            params["group_id"] = int(group_id) if str(group_id).isdigit() else group_id
+        else:
+            action = "send_private_msg"
+            user_id = event.get_sender_id()
+            params["user_id"] = int(user_id) if str(user_id).isdigit() else user_id
+        # 与适配器保持一致：多号登录时透传 self_id，避免消息从错误的账号发出
+        self_id = getattr(event.message_obj, "self_id", None)
+        if self_id:
+            params["self_id"] = self_id
+
+        try:
+            await event.bot.call_action(action, **params)
+        except Exception as exc:
+            logger.warning(
+                f"[astrbot_plugin_cloudflare_imgbed_random] OneBot 直传图片失败，回退消息链发送: {exc}"
+            )
+            return False
+        logger.info(f"[astrbot_plugin_cloudflare_imgbed_random] 已直传图片 URL 给协议端: {action}")
+        return True
+
     def _log_image_send(self, image_data: bytes, compressed: bool):
         """记录发送图片的格式与大小，便于排查 QQ 聊天气泡显示问题。"""
         logger.info(
@@ -444,6 +519,39 @@ class CloudflareImgbedRandomPlugin(Star):
             "或让图床输出 JPEG/PNG 格式",
             image_format or "未知",
         )
+
+    async def _send_image(self, event: AstrMessageEvent, caption: str, media_url: str, force_url: bool = False):
+        """统一的图片发送入口，/随机图 与 /原图 共用。
+
+        url 模式下优先把原图 URL 交给协议端（宽高准确、无下载与 base64 开销）；
+        协议端无法解析宽高的格式降级为下载压缩转 JPEG。非 aiocqhttp 平台或任一
+        环节失败时，回退为标准消息链发送，保证消息不丢。
+        force_url=True 时不压缩（供 /原图 使用）。
+        """
+        use_url_mode = force_url or self.settings.get("imageSendMode", "url") == "url"
+        # AVIF/HEIC/SVG 等协议端解析不出宽高，直传会显示成 1:1，降级为压缩转 JPEG
+        if use_url_mode and not force_url and not self._is_napcat_parseable_url(media_url):
+            logger.info(
+                "[astrbot_plugin_cloudflare_imgbed_random] URL 格式协议端无法解析宽高，降级为压缩发送"
+            )
+            use_url_mode = False
+
+        if use_url_mode:
+            if self._can_send_via_onebot(event) and await self._send_via_onebot(event, caption, media_url):
+                event.stop_event()
+                return
+            yield event.chain_result([Plain(caption), Image.fromURL(media_url)])
+            return
+
+        prepared = await self._get_sendable_image(media_url)
+        if prepared is None:
+            yield event.chain_result([Plain(caption), Image.fromURL(media_url)])
+            return
+        image_data, compressed = prepared
+        self._log_image_send(image_data, compressed)
+        if compressed:
+            caption += self._build_original_hint(media_url)
+        yield event.chain_result([Plain(caption), Image.fromBytes(image_data)])
 
     async def _get_random_media(self, directory=None, content_type=None):
         """获取并校验随机媒体 URL。
@@ -564,15 +672,8 @@ class CloudflareImgbedRandomPlugin(Star):
             if content_type == "image" or any(path.endswith(ext) for ext in IMAGE_EXTENSIONS):
                 self._remember_image(event, media_url)
                 caption = self._build_media_caption(media_url, "图片")
-                prepared = await self._get_sendable_image(media_url)
-                if prepared is not None:
-                    image_data, compressed = prepared
-                    self._log_image_send(image_data, compressed)
-                    if compressed:
-                        caption += self._build_original_hint(media_url)
-                    yield event.chain_result([Plain(caption), Image.fromBytes(image_data)])
-                else:
-                    yield event.chain_result([Plain(caption), Image.fromURL(media_url)])
+                async for result in self._send_image(event, caption, media_url):
+                    yield result
             elif content_type == "video" or any(path.endswith(ext) for ext in VIDEO_EXTENSIONS):
                 yield event.chain_result([Plain(self._build_media_caption(media_url, "视频")), Video.fromURL(media_url)])
             else:
@@ -608,7 +709,9 @@ class CloudflareImgbedRandomPlugin(Star):
                 filename = next(reversed(history))
                 url = history[filename]
 
-            yield event.chain_result([Plain(self._build_media_caption(url, "图片") + "（原图）"), Image.fromURL(url)])
+            caption = self._build_media_caption(url, "图片") + "（原图）"
+            async for result in self._send_image(event, caption, url, force_url=True):
+                yield result
         except Exception as exc:
             logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 原图命令处理失败: {exc}")
             yield event.plain_result("处理原图请求时出错，请稍后重试")

@@ -213,7 +213,7 @@ class MediaCaptionTests(unittest.TestCase):
 
 
 class CompressConfigTests(unittest.TestCase):
-    """enableCompress / compressMaxSide / compressQuality 配置加载与规范化。"""
+    """imageSendMode / enableCompress / 压缩参数配置加载与规范化。"""
 
     def _plugin_with(self, extra):
         config = {"imgbedDomain": "https://img.example", "retryCount": 0}
@@ -227,9 +227,17 @@ class CompressConfigTests(unittest.TestCase):
 
     def test_defaults(self):
         plugin = self._plugin_with({})
+        self.assertEqual(plugin.settings["imageSendMode"], "url")
         self.assertTrue(plugin.settings["enableCompress"])
         self.assertEqual(plugin.settings["compressMaxSide"], 1920)
         self.assertEqual(plugin.settings["compressQuality"], 85)
+
+    def test_image_send_mode_normalization(self):
+        plugin = self._plugin_with({"imageSendMode": " COMPRESS "})
+        self.assertEqual(plugin.settings["imageSendMode"], "compress")
+
+        plugin = self._plugin_with({"imageSendMode": "invalid"})
+        self.assertEqual(plugin.settings["imageSendMode"], "url")
 
     def test_string_bool_and_invalid_numbers(self):
         plugin = self._plugin_with({"enableCompress": "false", "compressMaxSide": "abc", "compressQuality": 500})
@@ -517,11 +525,41 @@ class ImageHistoryTests(unittest.TestCase):
 class HandlerTests(unittest.TestCase):
     """/原图 命令与 _handle_media 压缩发送/回退路径。"""
 
+    class FakeBot:
+        def __init__(self, fail=False):
+            self.calls = []
+            self.fail = fail
+
+        async def call_action(self, action, **params):
+            if self.fail:
+                raise RuntimeError("protocol side error")
+            self.calls.append((action, params))
+            return {}
+
     class FakeEvent:
-        def __init__(self, message_str="", uo="session:A"):
+        def __init__(self, message_str="", uo="session:A", platform="aiocqhttp",
+                     bot=None, group_id="", sender_id="10001", self_id=None):
             self.message_str = message_str
             self.unified_msg_origin = uo
             self.results = []
+            self.bot = bot
+            self.stopped = False
+            self._platform = platform
+            self._group_id = group_id
+            self._sender_id = sender_id
+            self.message_obj = types.SimpleNamespace(self_id=self_id)
+
+        def get_platform_name(self):
+            return self._platform
+
+        def get_group_id(self):
+            return self._group_id
+
+        def get_sender_id(self):
+            return self._sender_id
+
+        def stop_event(self):
+            self.stopped = True
 
         def plain_result(self, text):
             self.results.append(("plain", text))
@@ -536,6 +574,8 @@ class HandlerTests(unittest.TestCase):
         self.plugin.settings = {
             "showFileInfo": True,
             "enableCompress": True,
+            # 既有用例覆盖压缩链路，URL 直传链路由 OneBotSendTests 专门覆盖
+            "imageSendMode": "compress",
             "compressMaxSide": 1920,
             "compressQuality": 85,
         }
@@ -666,6 +706,163 @@ class HandlerTests(unittest.TestCase):
         event = self.FakeEvent("/原图", uo="session:B")
         self._run(self.plugin.original_image(event), event)
         self.assertIn("还没有发送过随机图片", event.results[0][1])
+
+
+class OneBotSendTests(unittest.TestCase):
+    """URL 直传链路：平台探测、群/私聊参数、失败回退、格式降级与模式切换。"""
+
+    FakeBot = HandlerTests.FakeBot
+    FakeEvent = HandlerTests.FakeEvent
+
+    def setUp(self):
+        self.plugin = main.CloudflareImgbedRandomPlugin(types.SimpleNamespace(get_config=lambda: {}), config={})
+        self.plugin.settings = {
+            "showFileInfo": True,
+            "enableCompress": True,
+            "imageSendMode": "url",
+            "compressMaxSide": 1920,
+            "compressQuality": 85,
+        }
+
+    @staticmethod
+    def _run(agen, event):
+        async def runner():
+            async for item in agen:
+                event.results.append(item)
+
+        asyncio.run(runner())
+
+    def _fake_media_source(self, url):
+        async def fake_get(directory, content_type):
+            return url
+
+        self.plugin._get_random_media = fake_get
+
+    def _forbid_download(self):
+        async def fail_download(_url):
+            raise AssertionError("URL 直传模式不应下载图片")
+
+        self.plugin._download_image = fail_download
+
+    def test_group_message_uses_send_group_msg(self):
+        bot = self.FakeBot()
+        event = self.FakeEvent("/随机图", bot=bot, group_id="12345", self_id="99")
+        self._fake_media_source("https://img.example/file/pic.jpg")
+        self._forbid_download()
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        self.assertEqual(len(bot.calls), 1)
+        action, params = bot.calls[0]
+        self.assertEqual(action, "send_group_msg")
+        self.assertEqual(params["group_id"], 12345)
+        self.assertEqual(params["self_id"], "99")
+        self.assertNotIn("user_id", params)
+        text_seg, image_seg = params["message"]
+        self.assertEqual(text_seg["type"], "text")
+        self.assertIn("pic.jpg", text_seg["data"]["text"])
+        self.assertEqual(image_seg, {"type": "image", "data": {"file": "https://img.example/file/pic.jpg"}})
+        # 直传成功后不再产生消息链结果，并终止事件避免重复发送
+        self.assertEqual(event.results, [])
+        self.assertTrue(event.stopped)
+
+    def test_private_message_uses_send_private_msg(self):
+        bot = self.FakeBot()
+        event = self.FakeEvent("/随机图", bot=bot, group_id="", sender_id="10001")
+        self._fake_media_source("https://img.example/file/pic.png")
+        self._forbid_download()
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        action, params = bot.calls[0]
+        self.assertEqual(action, "send_private_msg")
+        self.assertEqual(params["user_id"], 10001)
+        self.assertNotIn("group_id", params)
+        self.assertNotIn("self_id", params)
+
+    def test_non_aiocqhttp_platform_uses_chain_result(self):
+        bot = self.FakeBot()
+        event = self.FakeEvent("/随机图", platform="telegram", bot=bot)
+        self._fake_media_source("https://img.example/file/pic.jpg")
+        self._forbid_download()
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        self.assertEqual(bot.calls, [])
+        kind, chain = event.results[0]
+        self.assertEqual(kind, "chain")
+        self.assertEqual(chain[1], {"type": "url", "url": "https://img.example/file/pic.jpg"})
+        self.assertFalse(event.stopped)
+
+    def test_missing_bot_uses_chain_result(self):
+        event = self.FakeEvent("/随机图", bot=None)
+        self._fake_media_source("https://img.example/file/pic.jpg")
+        self._forbid_download()
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        kind, chain = event.results[0]
+        self.assertEqual(kind, "chain")
+        self.assertEqual(chain[1], {"type": "url", "url": "https://img.example/file/pic.jpg"})
+
+    def test_call_action_failure_falls_back_to_chain_result(self):
+        bot = self.FakeBot(fail=True)
+        event = self.FakeEvent("/随机图", bot=bot, group_id="12345")
+        self._fake_media_source("https://img.example/file/pic.jpg")
+        self._forbid_download()
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        kind, chain = event.results[0]
+        self.assertEqual(kind, "chain")
+        self.assertEqual(chain[1], {"type": "url", "url": "https://img.example/file/pic.jpg"})
+        self.assertFalse(event.stopped)
+
+    def test_unparseable_extension_falls_back_to_compression(self):
+        for url in ("https://img.example/file/pic.avif", "https://img.example/file/pic.heic"):
+            with self.subTest(url=url):
+                bot = self.FakeBot()
+                event = self.FakeEvent("/随机图", bot=bot, group_id="12345")
+                self._fake_media_source(url)
+
+                async def fake_download(_url):
+                    return b"original-bytes"
+
+                self.plugin._download_image = fake_download
+                self.plugin._prepare_image = lambda _data: (b"jpeg-bytes", True)
+                self._run(self.plugin._handle_media(event, "image"), event)
+
+                # 协议端解析不出宽高的格式必须降级压缩，不能直传
+                self.assertEqual(bot.calls, [])
+                caption, image = event.results[0][1]
+                self.assertEqual(image, {"type": "bytes", "data": b"jpeg-bytes"})
+                self.assertIn("已压缩", caption)
+
+    def test_compress_mode_skips_direct_send(self):
+        self.plugin.settings["imageSendMode"] = "compress"
+        bot = self.FakeBot()
+        event = self.FakeEvent("/随机图", bot=bot, group_id="12345")
+        self._fake_media_source("https://img.example/file/pic.jpg")
+
+        async def fake_download(_url):
+            return b"original-bytes"
+
+        self.plugin._download_image = fake_download
+        self.plugin._prepare_image = lambda _data: (b"jpeg-bytes", True)
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        self.assertEqual(bot.calls, [])
+        _, image = event.results[0][1]
+        self.assertEqual(image, {"type": "bytes", "data": b"jpeg-bytes"})
+
+    def test_original_image_always_sends_url(self):
+        self.plugin.settings["imageSendMode"] = "compress"
+        bot = self.FakeBot()
+        self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/pic.jpg")
+        event = self.FakeEvent("/原图", bot=bot, group_id="12345")
+        self._forbid_download()
+        self._run(self.plugin.original_image(event), event)
+
+        # /原图 始终直传原图 URL，不受 compress 模式影响
+        action, params = bot.calls[0]
+        self.assertEqual(action, "send_group_msg")
+        self.assertEqual(params["message"][1]["data"]["file"], "https://img.example/file/pic.jpg")
+        self.assertIn("（原图）", params["message"][0]["data"]["text"])
 
 
 if __name__ == "__main__":

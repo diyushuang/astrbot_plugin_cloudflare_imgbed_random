@@ -1,5 +1,17 @@
 # 更新日志
 
+## v1.4.0 (2026-09-13)
+
+**修复**
+- 🐛 修复 QQ 图片聊天气泡显示 1:1：AstrBot 的 aiocqhttp 适配器会把所有图片消息段统一转成 base64，协议端解析宽高失败后以 1024×1024 占位。插件改用 OneBot 原生 `send_group_msg` / `send_private_msg` 直传图片 URL，由协议端自行下载并解析真实宽高，并透传 `self_id` 支持多账号路由
+
+**优化改进**
+- ⚡ 默认 `imageSendMode=url`，跳过插件侧下载、压缩与 base64 编码开销，图片发送延迟更低；非 aiocqhttp 平台或协议端调用失败时自动回退标准消息链，不影响消息可达性
+- 🛡️ AVIF/HEIC/SVG 等协议端无法解析宽高的格式自动降级为下载转 JPEG；`/原图` 命令始终直传原图 URL，且与 `/随机图` 共用统一发送链路
+- ⚙️ 新增配置项 `imageSendMode`（`url` / `compress`），原有 `enableCompress`、`compressMaxSide`、`compressQuality` 在 `compress` 模式下继续生效
+- 📖 README 更新图片发送方式说明与常见问题 8，说明根因、回退链路与适用场景
+- ✅ 单元测试扩展至 58 个：覆盖 OneBot 直传群聊/私聊、平台探测、调用失败回退、非常见格式降级、模式切换与 `/原图` 直传
+
 ## v1.3.1 (2026-09-13)
 
 **优化改进**
