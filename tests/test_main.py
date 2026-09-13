@@ -2,7 +2,7 @@
 
 先以 stub 替换 astrbot.* 模块（无需安装 AstrBot）再导入 main，
 覆盖目录提取、URL 解析与校验、随机媒体请求、媒体文件名解析、
-发送文案构建、图片压缩、原图历史与 /原图 匹配。
+发送文案构建、图片压缩、图片格式嗅探、原图历史与 /原图 匹配。
 """
 
 import asyncio
@@ -307,6 +307,69 @@ class PrepareImageTests(unittest.TestCase):
         out, compressed = self.plugin._prepare_image(data)
         self.assertFalse(compressed)
         self.assertEqual(out, data)
+
+    def test_unparseable_small_image_is_reencoded(self):
+        # ICO 不在协议端可解析宽高的格式集合内，即使很小也要转成 JPEG，
+        # 否则 QQ 协议端解析失败、聊天气泡显示为 1:1
+        img = main.PILImage.new("RGB", (64, 64), (10, 200, 30))
+        buf = io.BytesIO()
+        img.save(buf, format="ICO")
+        out, compressed = self.plugin._prepare_image(buf.getvalue())
+        self.assertTrue(compressed)
+        with main.PILImage.open(io.BytesIO(out)) as result:
+            self.assertEqual(result.format, "JPEG")
+
+    def test_exif_orientation_is_baked_in(self):
+        # 用噪声纹理保证重编码后体积变小，命中压缩分支
+        noise = main.PILImage.effect_noise((2000, 1000), 64).convert("RGB")
+        green = main.PILImage.blend(noise.crop((0, 0, 1000, 1000)), main.PILImage.new("RGB", (1000, 1000), (0, 255, 0)), 0.6)
+        red = main.PILImage.blend(noise.crop((1000, 0, 2000, 1000)), main.PILImage.new("RGB", (1000, 1000), (255, 0, 0)), 0.6)
+        img = main.PILImage.new("RGB", (2000, 1000))
+        img.paste(green, (0, 0))
+        img.paste(red, (1000, 0))
+        exif = main.PILImage.Exif()
+        exif[274] = 6  # Orientation: 展示时旋转 90° CW
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=95, exif=exif)
+        out, compressed = self.plugin._prepare_image(buf.getvalue())
+        self.assertTrue(compressed)
+        with main.PILImage.open(io.BytesIO(out)) as result:
+            # 存储尺寸 2000x1000 按 EXIF 展示为 1000x2000，重编码后最长边 1920
+            self.assertEqual(result.size, (960, 1920))
+            top = result.getpixel((480, 100))
+            bottom = result.getpixel((480, 1800))
+            self.assertGreater(top[1], top[0])  # 顶部为绿色
+            self.assertGreater(bottom[0], bottom[1])  # 底部为红色
+
+
+class SniffImageFormatTests(unittest.TestCase):
+    """_sniff_image_format：按文件头魔数识别图片格式。"""
+
+    @staticmethod
+    def _sniff(data):
+        return main.CloudflareImgbedRandomPlugin._sniff_image_format(data)
+
+    def test_common_formats(self):
+        self.assertEqual(self._sniff(b"\xff\xd8\xff\xe0" + b"\x00" * 16), "JPEG")
+        self.assertEqual(self._sniff(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16), "PNG")
+        self.assertEqual(self._sniff(b"GIF89a" + b"\x00" * 16), "GIF")
+        self.assertEqual(self._sniff(b"RIFF\x24\x00\x00\x00WEBPVP8 " + b"\x00" * 8), "WEBP")
+        self.assertEqual(self._sniff(b"BM\x36\x00\x00\x00" + b"\x00" * 16), "BMP")
+        self.assertEqual(self._sniff(b"II*\x00\x08\x00\x00\x00" + b"\x00" * 8), "TIFF")
+        self.assertEqual(self._sniff(b"MM\x00*\x00\x00\x00\x08" + b"\x00" * 8), "TIFF")
+
+    def test_isobmff_brands(self):
+        self.assertEqual(self._sniff(b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00"), "AVIF")
+        self.assertEqual(self._sniff(b"\x00\x00\x00\x18ftypavis\x00\x00\x00\x00"), "AVIF")
+        self.assertEqual(self._sniff(b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00"), "HEIF")
+        self.assertEqual(self._sniff(b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00"), "HEIF")
+
+    def test_svg_xml_and_unknown(self):
+        self.assertEqual(self._sniff(b'  <?xml version="1.0"?><svg xmlns="urn:x"/>'), "SVG")
+        self.assertEqual(self._sniff(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>'), "SVG")
+        self.assertIsNone(self._sniff(b"\x00" * 32))
+        self.assertIsNone(self._sniff(b"tiny"))
+        self.assertIsNone(self._sniff(b""))
 
 
 class DownloadImageTests(unittest.TestCase):

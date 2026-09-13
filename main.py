@@ -24,8 +24,10 @@ from astrbot.api.star import Context, Star, register
 
 try:
     from PIL import Image as PILImage
+    from PIL import ImageOps as PILImageOps
 except ImportError:  # Pillow 未安装时压缩自动禁用，其余功能不受影响
     PILImage = None
+    PILImageOps = None
 
 
 # API 响应体大小上限，超过则视为异常响应并丢弃
@@ -41,9 +43,12 @@ MAX_HISTORY_SESSIONS = 200
 ALLOWED_CONTENT_TYPES = {"image", "video"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp", ".ts"}
+# QQ 协议端（NapCat 等）能从图片字节解析出宽高的格式集合；解析失败时协议端
+# 会以固定 1024x1024 占位，QQ 聊天气泡里图片就显示成 1:1（点开查看才正常）
+NAPCAT_PARSEABLE_FORMATS = frozenset({"JPEG", "PNG", "GIF", "WEBP", "BMP", "TIFF"})
 
 
-@register("astrbot_plugin_cloudflare_imgbed_random", "diyushuang", "从CloudFlare ImgBed图床中获取随机图片", "1.3.0")
+@register("astrbot_plugin_cloudflare_imgbed_random", "diyushuang", "从CloudFlare ImgBed图床中获取随机图片", "1.3.1")
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -235,6 +240,38 @@ class CloudflareImgbedRandomPlugin(Star):
         except Exception:
             return None
 
+    @staticmethod
+    def _sniff_image_format(data: bytes) -> Optional[str]:
+        """按文件头魔数识别图片格式，返回与 Pillow 一致的格式名（如 JPEG/PNG/AVIF）。
+
+        不依赖 Pillow，用于在发送前判断字节能否被 QQ 协议端解析宽高；
+        无法识别时返回 None。
+        """
+        if len(data) < 12:
+            return None
+        if data.startswith(b"\xff\xd8\xff"):
+            return "JPEG"
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "PNG"
+        if data.startswith((b"GIF87a", b"GIF89a")):
+            return "GIF"
+        if data.startswith(b"BM"):
+            return "BMP"
+        if data[:4] in (b"II*\x00", b"MM\x00*"):
+            return "TIFF"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "WEBP"
+        if data[4:8] == b"ftyp":
+            brand = data[8:12]
+            if brand.startswith(b"av"):
+                return "AVIF"
+            if brand in (b"heic", b"heix", b"hevc", b"mif1", b"msf1"):
+                return "HEIF"
+        stripped = data.lstrip(b" \t\r\n")
+        if stripped.startswith((b"<svg", b"<?xml")):
+            return "SVG"
+        return None
+
     def _build_media_caption(self, media_url: str, kind: str) -> str:
         """构建随媒体一起发送的文案，附带文件名。"""
         default_caption = f"随机{kind}发送成功"
@@ -330,8 +367,8 @@ class CloudflareImgbedRandomPlugin(Star):
     def _prepare_image(self, data: bytes):
         """压缩图片字节流，返回 (待发送字节, 是否实际压缩)。
 
-        动图不重编码（保留动画）；压缩结果没有更小时沿用原字节；
-        解码失败返回 None，由调用方回退为 URL 直发。
+        动图不重编码（保留动画）；小图仅在协议端能解析宽高的格式下才沿用
+        原字节；解码失败返回 None，由调用方回退为 URL 直发。
         """
         if not PILImage:
             return None
@@ -339,9 +376,14 @@ class CloudflareImgbedRandomPlugin(Star):
             with PILImage.open(io.BytesIO(data)) as img:
                 if getattr(img, "is_animated", False):
                     return data, False
-                if len(data) <= COMPRESS_MIN_BYTES:
-                    # 小图不值得重编码，避免无谓的画质损失
+                original_format = (img.format or "").upper()
+                if len(data) <= COMPRESS_MIN_BYTES and original_format in NAPCAT_PARSEABLE_FORMATS:
+                    # 小图不值得重编码，避免无谓的画质损失；AVIF/HEIC 等协议端
+                    # 解析不出宽高的格式例外，必须转成 JPEG，否则 QQ 聊天气泡
+                    # 会以 1024x1024 占位显示成 1:1
                     return data, False
+                # 依 EXIF Orientation 把旋转烘进像素，避免重编码丢元数据后方向错乱
+                img = PILImageOps.exif_transpose(img)
                 max_side = self.settings.get("compressMaxSide", 1920)
                 width, height = img.size
                 if max(width, height) > max_side:
@@ -360,7 +402,7 @@ class CloudflareImgbedRandomPlugin(Star):
         except Exception as exc:
             logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 图片压缩失败: {exc}")
             return None
-        if len(compressed) >= len(data):
+        if len(compressed) >= len(data) and original_format in NAPCAT_PARSEABLE_FORMATS:
             return data, False
         return compressed, True
 
@@ -375,7 +417,33 @@ class CloudflareImgbedRandomPlugin(Star):
         data = await self._download_image(media_url)
         if data is None:
             return None
-        return await asyncio.to_thread(self._prepare_image, data)
+        prepared = await asyncio.to_thread(self._prepare_image, data)
+        if prepared is None:
+            # 解码失败回退 URL 直发，同样提示协议端宽高解析风险
+            self._warn_qq_preview_risk(data)
+        return prepared
+
+    def _log_image_send(self, image_data: bytes, compressed: bool):
+        """记录发送图片的格式与大小，便于排查 QQ 聊天气泡显示问题。"""
+        logger.info(
+            "[astrbot_plugin_cloudflare_imgbed_random] 发送图片: 格式=%s, %s, 大小=%.0fKB",
+            self._sniff_image_format(image_data) or "未知",
+            "已压缩" if compressed else "原样字节",
+            len(image_data) / 1024,
+        )
+        self._warn_qq_preview_risk(image_data)
+
+    def _warn_qq_preview_risk(self, image_data: bytes):
+        """图片格式超出协议端（NapCat 等）宽高解析能力时，提示聊天气泡 1:1 风险。"""
+        image_format = self._sniff_image_format(image_data)
+        if image_format in NAPCAT_PARSEABLE_FORMATS:
+            return
+        logger.warning(
+            "[astrbot_plugin_cloudflare_imgbed_random] 图片格式为 %s，QQ 协议端解析不出宽高，"
+            "聊天气泡可能显示为 1:1 占位（点开查看正常）。建议升级 NapCat 到最新版，"
+            "或让图床输出 JPEG/PNG 格式",
+            image_format or "未知",
+        )
 
     async def _get_random_media(self, directory=None, content_type=None):
         """获取并校验随机媒体 URL。
@@ -499,6 +567,7 @@ class CloudflareImgbedRandomPlugin(Star):
                 prepared = await self._get_sendable_image(media_url)
                 if prepared is not None:
                     image_data, compressed = prepared
+                    self._log_image_send(image_data, compressed)
                     if compressed:
                         caption += self._build_original_hint(media_url)
                     yield event.chain_result([Plain(caption), Image.fromBytes(image_data)])
