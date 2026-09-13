@@ -5,7 +5,7 @@
 [![Test](https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random/actions/workflows/test.yml/badge.svg)](https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random/actions/workflows/test.yml)
 
 ![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.16-blue)
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 **AstrBot 的 CloudFlare ImgBed 随机图插件**
@@ -29,6 +29,8 @@
 ### ✨ 功能特性
 
 - 🎲 **随机媒体获取**：从 CloudFlare ImgBed 图床获取随机图片或视频
+- 🗜️ **图片压缩发送**：随机图片先压缩（等比缩放 + JPEG 重编码）再发送，明显缩短发送延迟；失败自动回退原图直发
+- 🖼️ **原图找回**：`/原图` 命令重发最近一张随机图片的原图，也可按文件名找回指定的某一张
 - 🏷️ **文件名展示**：发送随机媒体时附带图片/视频文件名
 - 🔐 **API Token 鉴权**：支持需要鉴权的 API 接口
 - 📁 **目录选择**：支持从指定目录获取随机媒体
@@ -100,8 +102,12 @@ git clone https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random.
 | `retryCount` | API 请求重试次数 | `3` | `3` |
 | `enableLLM` | 是否启用 LLM 工具调用 | `true` | `true` |
 | `showFileInfo` | 发送时是否附带文件名 | `true` | `true` |
+| `enableCompress` | 是否启用图片压缩发送 | `true` | `true` |
+| `compressMaxSide` | 压缩后图片最长边（像素，等比缩放） | `1920` | `1920` |
+| `compressQuality` | JPEG 压缩质量（1-100） | `85` | `85` |
 
 > 配置了 `apiToken` 时，`imgbedDomain` 必须使用 HTTPS。`retryCount` 表示失败后的重试次数，因此总请求次数为 `retryCount + 1`。
+> 图片压缩依赖 Pillow（安装插件时自动安装）；关闭 `enableCompress` 或压缩失败时自动回退为原图直发，不影响可用性。
 
 ---
 
@@ -147,6 +153,40 @@ git clone https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random.
 /随机视频 video/movies
 ```
 
+#### 图片压缩发送（默认开启）
+
+开启 `enableCompress` 后，随机图片会先由插件下载原图并压缩（超过 `compressMaxSide` 的等比缩放到最长边限制，再按 `compressQuality` 质量重编码为 JPEG），然后以压缩后的字节发送，原图越大提速越明显。压缩图（非原图）会在文案中标注，并附带一条可直接复制的原图命令示范：
+
+```
+🖼️ Guerlain.jpg（已压缩，发送 /原图 Guerlain.jpg 可获取原图）
+```
+
+以下情况自动回退为原图直发，不影响使用：
+
+- 配置中关闭了 `enableCompress` 或未安装 Pillow
+- 原图是动图（GIF/动图 WebP，保留动画不重编码）
+- 原图本身较小（不超过 200KB，避免无谓的画质损失）
+- 下载或压缩失败（含原图超过 30MB 上限）
+
+#### 获取原图
+
+发送以下命令重发**本会话最近一张**随机图片的原图（不压缩）：
+
+```
+/原图
+```
+
+也可以带上文件名（支持忽略大小写、省略扩展名、部分匹配）找回指定的某一张：
+
+```
+/原图 Guerlain.jpg
+/原图 Guerlain
+```
+
+- 原图消息的文案会标注「（原图）」，与压缩图标注相区分
+- 匹配到多张图片时，插件会列出候选文件名，请补充更完整的名称
+- 只能找回本会话最近发送过的随机图片（每会话保留最近 30 张），且各会话互不干扰
+
 #### LLM 智能识别
 
 除了使用带斜杠的命令外，您还可以直接与AI对话：
@@ -157,7 +197,7 @@ git clone https://github.com/diyushuang/astrbot_plugin_cloudflare_imgbed_random.
 
 #### 命令说明
 
-- **直接命令**：带斜杠的命令（`/随机图`、`/随机视频`）直接触发插件功能
+- **直接命令**：带斜杠的命令（`/随机图`、`/随机视频`、`/原图`）直接触发插件功能
 - **LLM识别**：不带斜杠的命令由AI智能识别并调用插件工具
 - **目录支持**：两种方式都支持指定目录参数
 
@@ -237,12 +277,15 @@ astrbot_plugin_cloudflare_imgbed_random/
 2. **媒体获取**：请求图床随机接口，带指数退避重试，兼容 JSON、直接返回媒体和纯文本 URL 三种响应
 3. **URL 校验**：返回地址必须为合法 HTTP(S) 且不含凭据，相对路径自动拼接为绝对地址
 4. **文案构建**：从媒体 URL 解析文件名，生成附带文件名的发送文案（可经 `showFileInfo` 关闭）
-5. **命令与 LLM 双入口**：`/随机图`、`/随机视频` 命令与 `sendRandomMedia` LLM 工具共用同一处理流程
+5. **图片压缩**：下载原图字节流（同域才附带 Token、限 30MB），Pillow 等比缩放 + JPEG 重编码后在 local 线程池压缩，经 `Image.fromBytes` 发送，失败自动回退 URL 直发
+6. **原图历史**：按会话记录最近发送的随机图片（文件名 → 原图 URL），`/原图` 命令支持最近一张与按文件名匹配找回
+7. **命令与 LLM 双入口**：`/随机图`、`/随机视频` 命令与 `sendRandomMedia` LLM 工具共用同一处理流程
 
 ### 技术栈
 
-- **Python 3.8+**
+- **Python 3.9+**
 - **aiohttp**：异步 HTTP 客户端
+- **Pillow**：图片压缩处理
 - **AstrBot API**：插件开发框架
 
 ---
@@ -284,9 +327,34 @@ astrbot_plugin_cloudflare_imgbed_random/
 - 媒体 URL 末段没有扩展名（如直链为随机 ID 形式）时，插件无法识别文件名，自动回退为默认文案
 - 配置项 `showFileInfo` 关闭时同样只显示默认文案
 
+### 6. 为什么收到的图片和图床里的原图不完全一致
+
+**说明**：
+- 开启 `enableCompress` 后发送的是压缩图（等比缩放 + JPEG 重编码），用于缩短发送延迟
+- 需要原图时发送 `/原图` 即可重发最近一张随机图片的原图，或用 `/原图 文件名` 找回指定图片
+- 若不想压缩，可在插件配置中关闭 `enableCompress`
+
+### 7. 压缩后画质不满意
+
+**说明**：
+- 调高 `compressQuality`（默认 85，最高 100）可提升画质、增大体积
+- 调大 `compressMaxSide`（默认 1920）可保留更高的分辨率
+- 原图不超过 200KB 或为动图时插件不会重编码，直接按原图发送
+
 ---
 
 ## 📝 更新日志
+
+### v1.3.0 (2026-09-13)
+
+**新增功能**
+- 🗜️ 随机图片先压缩再发送：插件下载原图后经 Pillow 等比缩放（默认最长边 1920px）+ JPEG 重编码（默认质量 85），以字节流发送，明显缩短发送延迟
+- 🖼️ 新增 `/原图` 命令：不带参数重发本会话最近一张随机图片的原图，支持 `/原图 文件名` 按文件名找回指定的某一张（忽略大小写、可省略扩展名、唯一子串匹配）
+- ⚙️ 新增配置项 `enableCompress`（默认开启）、`compressMaxSide`、`compressQuality`
+
+**优化改进**
+- 🛡️ 压缩流程健壮性：动图不重编码保留动画、原图 ≤200KB 跳过重编码、下载限 30MB、鉴权 Token 仅在图片与图床同域时附带；任何环节失败自动回退原图 URL 直发
+- ⚡ 压缩放入独立线程执行，不阻塞事件循环；Pillow 未安装时压缩自动禁用，其余功能不受影响
 
 ### v1.2.2 (2026-09-12)
 

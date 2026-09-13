@@ -3,11 +3,16 @@
 数据流：加载插件配置 → 请求图床随机接口
 （GET {imgbedDomain}{apiEndpoint}?type=url&form=json[&dir=][&content=]）
 → 校验并解析返回的媒体 URL → 以「文件名文案 + 图片/视频」的形式在同一条消息中发送。
+
+图片默认先由插件下载原图并经 Pillow 压缩（缩放 + JPEG 重编码）后以字节发送，
+失败自动回退为 URL 直发；/原图 命令可找回本会话最近发送图片的原图。
 """
 
 import asyncio
+import io
 import json
 import re
+from collections import OrderedDict
 from typing import Optional
 from urllib.parse import urljoin, urlparse, urlencode, unquote
 
@@ -17,25 +22,41 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Image, Plain, Video
 from astrbot.api.star import Context, Star, register
 
+try:
+    from PIL import Image as PILImage
+except ImportError:  # Pillow 未安装时压缩自动禁用，其余功能不受影响
+    PILImage = None
+
 
 # API 响应体大小上限，超过则视为异常响应并丢弃
 MAX_RESPONSE_BYTES = 1024 * 1024
+# 压缩模式下下载原图的大小上限，防止占满内存
+MAX_IMAGE_BYTES = 30 * 1024 * 1024
+# 原图字节数不超过该值时不重编码，避免小图画质受损
+COMPRESS_MIN_BYTES = 200 * 1024
+# 每个会话最多记录的图片历史条数 / 最多记录的会话数
+MAX_HISTORY_PER_SESSION = 30
+MAX_HISTORY_SESSIONS = 200
 # 命令/LLM 工具允许的内容类型，以及用于从 URL 识别媒体类型的扩展名集合
 ALLOWED_CONTENT_TYPES = {"image", "video"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp", ".ts"}
 
 
-@register("astrbot_plugin_cloudflare_imgbed_random", "diyushuang", "从CloudFlare ImgBed图床中获取随机图片", "1.2.2")
+@register("astrbot_plugin_cloudflare_imgbed_random", "diyushuang", "从CloudFlare ImgBed图床中获取随机图片", "1.3.0")
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
         self.config = config if config is not None else {}
         self._plugin_config_supplied = config is not None
         self.settings = {}
+        # 会话图片历史：{unified_msg_origin: OrderedDict{文件名: 原图URL}}，供 /原图 命令找回
+        self._image_history = {}
 
     async def initialize(self):
         await self._load_config()
+        if self.settings.get("enableCompress") and PILImage is None:
+            logger.warning("[astrbot_plugin_cloudflare_imgbed_random] 未安装 Pillow，图片压缩已禁用（可 pip install Pillow 后重启）")
         logger.info("[astrbot_plugin_cloudflare_imgbed_random] 插件初始化完成")
 
     async def _load_config(self):
@@ -64,6 +85,24 @@ class CloudflareImgbedRandomPlugin(Star):
             if isinstance(show_file_info, str):
                 show_file_info = show_file_info.strip().lower() not in {"false", "0", "no", "off"}
 
+            enable_compress = config.get("enableCompress", True)
+            if isinstance(enable_compress, str):
+                enable_compress = enable_compress.strip().lower() not in {"false", "0", "no", "off"}
+
+            compress_max_side = config.get("compressMaxSide", 1920)
+            try:
+                compress_max_side = int(compress_max_side)
+            except (TypeError, ValueError):
+                compress_max_side = 1920
+            compress_max_side = max(compress_max_side, 1)
+
+            compress_quality = config.get("compressQuality", 85)
+            try:
+                compress_quality = int(compress_quality)
+            except (TypeError, ValueError):
+                compress_quality = 85
+            compress_quality = min(max(compress_quality, 1), 100)
+
             self.settings = {
                 "imgbedDomain": str(config.get("imgbedDomain") or "").strip(),
                 "apiEndpoint": str(config.get("apiEndpoint") or "/random").strip(),
@@ -73,6 +112,9 @@ class CloudflareImgbedRandomPlugin(Star):
                 "retryCount": max(retry_count, 0),
                 "enableLLM": enable_llm,
                 "showFileInfo": show_file_info,
+                "enableCompress": enable_compress,
+                "compressMaxSide": compress_max_side,
+                "compressQuality": compress_quality,
             }
             self.config = config
             logger.info("[astrbot_plugin_cloudflare_imgbed_random] 配置加载成功")
@@ -87,6 +129,9 @@ class CloudflareImgbedRandomPlugin(Star):
                 "retryCount": 3,
                 "enableLLM": True,
                 "showFileInfo": True,
+                "enableCompress": True,
+                "compressMaxSide": 1920,
+                "compressQuality": 85,
             }
 
     @staticmethod
@@ -200,6 +245,137 @@ class CloudflareImgbedRandomPlugin(Star):
             return default_caption
         icon = "🖼️" if kind == "图片" else "🎬"
         return f"{icon} {filename}"
+
+    def _build_original_hint(self, media_url: str) -> str:
+        """构建压缩图的原图提示，能识别文件名时给出可直接复制的命令示范。"""
+        filename = self._extract_media_filename(media_url)
+        if filename:
+            return f"（已压缩，发送 /原图 {filename} 可获取原图）"
+        return "（已压缩，发送 /原图 可获取原图）"
+
+    @staticmethod
+    def _get_session_key(event: AstrMessageEvent) -> str:
+        """获取会话唯一标识，用于隔离 /原图 的图片历史。"""
+        return str(getattr(event, "unified_msg_origin", None) or "default")
+
+    def _remember_image(self, event: AstrMessageEvent, media_url: str):
+        """把发送过的随机图片记入会话历史，供 /原图 命令找回。"""
+        filename = self._extract_media_filename(media_url)
+        if not filename:
+            return
+        history = self._image_history.setdefault(self._get_session_key(event), OrderedDict())
+        history.pop(filename, None)
+        history[filename] = media_url
+        while len(history) > MAX_HISTORY_PER_SESSION:
+            history.popitem(last=False)
+        while len(self._image_history) > MAX_HISTORY_SESSIONS:
+            self._image_history.pop(next(iter(self._image_history)))
+
+    @staticmethod
+    def _match_image_history(history, query: str):
+        """按文件名在会话历史中查找图片。
+
+        依次尝试精确文件名（忽略大小写）、不带扩展名的名字、唯一子串匹配；
+        返回 (状态, 数据)：状态为 "found"（数据为 (文件名, URL)）、
+        "ambiguous"（数据为候选文件名列表，需用户精确化）或 "missing"。
+        """
+        query = query.strip().lower()
+        if not query:
+            return "missing", None
+        for filename, url in history.items():
+            if filename.lower() == query:
+                return "found", (filename, url)
+        stem_matches = [
+            (filename, url)
+            for filename, url in history.items()
+            if filename.rsplit(".", 1)[0].lower() == query.rsplit(".", 1)[0]
+        ]
+        if len(stem_matches) == 1:
+            return "found", stem_matches[0]
+        if stem_matches:
+            return "ambiguous", [name for name, _ in stem_matches]
+        substring_matches = [(filename, url) for filename, url in history.items() if query in filename.lower()]
+        if len(substring_matches) == 1:
+            return "found", substring_matches[0]
+        if substring_matches:
+            return "ambiguous", [name for name, _ in substring_matches]
+        return "missing", None
+
+    async def _download_image(self, media_url: str) -> Optional[bytes]:
+        """下载原图字节流，失败或超过大小上限时返回 None。"""
+        headers = {}
+        if self.settings.get("apiToken"):
+            # 仅当图片与图床同域时附带 Token，避免把鉴权信息发给第三方地址
+            domain_host = urlparse(self.settings.get("imgbedDomain", "")).netloc
+            if domain_host and urlparse(media_url).netloc == domain_host:
+                headers["Authorization"] = self.settings["apiToken"]
+        timeout = aiohttp.ClientTimeout(total=self.settings.get("timeout", 10.0))
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(media_url, allow_redirects=True, headers=headers, timeout=timeout) as response:
+                    if response.status != 200:
+                        logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 图片下载失败，状态码: {response.status}")
+                        return None
+                    data = await response.content.read(MAX_IMAGE_BYTES + 1)
+                    if len(data) > MAX_IMAGE_BYTES:
+                        logger.warning("[astrbot_plugin_cloudflare_imgbed_random] 原图超过大小上限，跳过压缩")
+                        return None
+                    return data
+        except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+            logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 图片下载失败: {exc}")
+        except Exception as exc:
+            logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 图片下载发生未预期错误: {exc}")
+        return None
+
+    def _prepare_image(self, data: bytes):
+        """压缩图片字节流，返回 (待发送字节, 是否实际压缩)。
+
+        动图不重编码（保留动画）；压缩结果没有更小时沿用原字节；
+        解码失败返回 None，由调用方回退为 URL 直发。
+        """
+        if not PILImage:
+            return None
+        try:
+            with PILImage.open(io.BytesIO(data)) as img:
+                if getattr(img, "is_animated", False):
+                    return data, False
+                if len(data) <= COMPRESS_MIN_BYTES:
+                    # 小图不值得重编码，避免无谓的画质损失
+                    return data, False
+                max_side = self.settings.get("compressMaxSide", 1920)
+                width, height = img.size
+                if max(width, height) > max_side:
+                    scale = max_side / max(width, height)
+                    img = img.resize((round(width * scale), round(height * scale)), PILImage.LANCZOS)
+                if img.mode in ("RGBA", "LA", "P"):
+                    rgba = img.convert("RGBA")
+                    background = PILImage.new("RGB", rgba.size, (255, 255, 255))
+                    background.paste(rgba, mask=rgba.split()[-1])
+                    img = background
+                elif img.mode != "RGB":
+                    img = img.convert("RGB")
+                output = io.BytesIO()
+                img.save(output, format="JPEG", quality=self.settings.get("compressQuality", 85), optimize=True)
+                compressed = output.getvalue()
+        except Exception as exc:
+            logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 图片压缩失败: {exc}")
+            return None
+        if len(compressed) >= len(data):
+            return data, False
+        return compressed, True
+
+    async def _get_sendable_image(self, media_url: str):
+        """按配置下载并压缩图片，返回 (待发送字节, 是否压缩)。
+
+        压缩关闭、Pillow 不可用或任一环节失败时返回 None，
+        由调用方回退为 Image.fromURL 直发。
+        """
+        if not self.settings.get("enableCompress", True):
+            return None
+        data = await self._download_image(media_url)
+        if data is None:
+            return None
+        return await asyncio.to_thread(self._prepare_image, data)
 
     async def _get_random_media(self, directory=None, content_type=None):
         """获取并校验随机媒体 URL。
@@ -318,7 +494,16 @@ class CloudflareImgbedRandomPlugin(Star):
 
             path = urlparse(media_url).path.lower()
             if content_type == "image" or any(path.endswith(ext) for ext in IMAGE_EXTENSIONS):
-                yield event.chain_result([Plain(self._build_media_caption(media_url, "图片")), Image.fromURL(media_url)])
+                self._remember_image(event, media_url)
+                caption = self._build_media_caption(media_url, "图片")
+                prepared = await self._get_sendable_image(media_url)
+                if prepared is not None:
+                    image_data, compressed = prepared
+                    if compressed:
+                        caption += self._build_original_hint(media_url)
+                    yield event.chain_result([Plain(caption), Image.fromBytes(image_data)])
+                else:
+                    yield event.chain_result([Plain(caption), Image.fromURL(media_url)])
             elif content_type == "video" or any(path.endswith(ext) for ext in VIDEO_EXTENSIONS):
                 yield event.chain_result([Plain(self._build_media_caption(media_url, "视频")), Video.fromURL(media_url)])
             else:
@@ -326,6 +511,38 @@ class CloudflareImgbedRandomPlugin(Star):
         except Exception as exc:
             logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 命令处理失败: {exc}")
             yield event.plain_result("处理随机媒体时出错，请稍后重试")
+
+    @filter.command("原图")
+    async def original_image(self, event: AstrMessageEvent):
+        """重发随机图片的原图：不带参数取最近一张，可带文件名指定某一张。"""
+        try:
+            message = self._get_message_text(event) or ""
+            match = re.search(r"原图\s*(.*)", message)
+            query = (match.group(1) if match else "").strip(" \t:：,，")
+
+            history = self._image_history.get(self._get_session_key(event))
+            if not history:
+                yield event.plain_result("本会话还没有发送过随机图片，请先使用 /随机图")
+                return
+
+            if query:
+                status, payload = self._match_image_history(history, query)
+                if status == "missing":
+                    yield event.plain_result(f"没有找到「{query}」，只能找回本会话最近发送过的随机图片")
+                    return
+                if status == "ambiguous":
+                    candidates = "、".join(payload[:5])
+                    yield event.plain_result(f"匹配到多张图片，请写出更完整的文件名：{candidates}")
+                    return
+                filename, url = payload
+            else:
+                filename = next(reversed(history))
+                url = history[filename]
+
+            yield event.chain_result([Plain(self._build_media_caption(url, "图片") + "（原图）"), Image.fromURL(url)])
+        except Exception as exc:
+            logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 原图命令处理失败: {exc}")
+            yield event.plain_result("处理原图请求时出错，请稍后重试")
 
     @filter.llm_tool(name="sendRandomMedia")
     async def send_random_media(

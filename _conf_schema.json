@@ -47,5 +47,24 @@
     "type": "bool",
     "hint": "开启后随机图片/视频消息会附带图片文件名",
     "default": true
+  },
+  "enableCompress": {
+    "description": "启用图片压缩",
+    "type": "bool",
+    "hint": "开启后随机图片先下载压缩再发送，缩短发送延迟；需要安装 Pillow，失败时自动回退为原图直发。可用 /原图 命令找回原图",
+    "default": true
+  },
+  "compressMaxSide": {
+    "description": "压缩后图片最长边（像素）",
+    "type": "int",
+    "hint": "压缩时把图片最长边缩放到该像素值（等比缩放），默认为1920",
+    "default": 1920
+  },
+  "compressQuality": {
+    "description": "压缩质量（1-100）",
+    "type": "int",
+    "hint": "JPEG压缩质量，数值越高质量越好、体积越大，默认为85",
+    "default": 85,
+    "min": 1
   }
 }

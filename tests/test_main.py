@@ -1,11 +1,13 @@
 """astrbot_plugin_cloudflare_imgbed_random 插件单元测试。
 
 先以 stub 替换 astrbot.* 模块（无需安装 AstrBot）再导入 main，
-覆盖目录提取、URL 解析与校验、随机媒体请求、媒体文件名解析
-及发送文案构建。
+覆盖目录提取、URL 解析与校验、随机媒体请求、媒体文件名解析、
+发送文案构建、图片压缩、原图历史与 /原图 匹配。
 """
 
+import asyncio
 import importlib
+import io
 import sys
 import types
 import unittest
@@ -35,9 +37,12 @@ def _install_astrbot_stubs():
     event.filter = Filters()
     event.AstrMessageEvent = object
     api.logger = types.SimpleNamespace(info=lambda *_: None, warning=lambda *_: None, error=lambda *_: None)
-    message_components.Image = types.SimpleNamespace(fromURL=lambda url: url)
+    message_components.Image = types.SimpleNamespace(
+        fromURL=lambda url: {"type": "url", "url": url},
+        fromBytes=lambda data: {"type": "bytes", "data": data},
+    )
     message_components.Plain = lambda value: value
-    message_components.Video = types.SimpleNamespace(fromURL=lambda url: url)
+    message_components.Video = types.SimpleNamespace(fromURL=lambda url: {"type": "video_url", "url": url})
     star.Context = object
     star.Star = Star
     star.register = lambda *_args, **_kwargs: lambda cls: cls
@@ -205,6 +210,399 @@ class MediaCaptionTests(unittest.TestCase):
             "https://img.example/file/10、商务宣传/Guerlain.jpg", "图片"
         )
         self.assertEqual(caption, "随机图片发送成功")
+
+
+class CompressConfigTests(unittest.TestCase):
+    """enableCompress / compressMaxSide / compressQuality 配置加载与规范化。"""
+
+    def _plugin_with(self, extra):
+        config = {"imgbedDomain": "https://img.example", "retryCount": 0}
+        config.update(extra)
+        plugin = main.CloudflareImgbedRandomPlugin(
+            types.SimpleNamespace(get_config=lambda: {}),
+            config=config,
+        )
+        asyncio.run(plugin._load_config())
+        return plugin
+
+    def test_defaults(self):
+        plugin = self._plugin_with({})
+        self.assertTrue(plugin.settings["enableCompress"])
+        self.assertEqual(plugin.settings["compressMaxSide"], 1920)
+        self.assertEqual(plugin.settings["compressQuality"], 85)
+
+    def test_string_bool_and_invalid_numbers(self):
+        plugin = self._plugin_with({"enableCompress": "false", "compressMaxSide": "abc", "compressQuality": 500})
+        self.assertFalse(plugin.settings["enableCompress"])
+        self.assertEqual(plugin.settings["compressMaxSide"], 1920)
+        self.assertEqual(plugin.settings["compressQuality"], 100)
+
+    def test_bounds_are_clamped(self):
+        plugin = self._plugin_with({"compressQuality": 0, "compressMaxSide": -5})
+        self.assertEqual(plugin.settings["compressQuality"], 1)
+        self.assertEqual(plugin.settings["compressMaxSide"], 1)
+
+
+@unittest.skipUnless(main.PILImage, "需要 Pillow")
+class PrepareImageTests(unittest.TestCase):
+    """_prepare_image：缩放重编码、动图与小图跳过、透明铺白底、损坏回退。"""
+
+    def setUp(self):
+        self.plugin = main.CloudflareImgbedRandomPlugin(types.SimpleNamespace(get_config=lambda: {}), config={})
+        self.plugin.settings = {"compressMaxSide": 1920, "compressQuality": 85}
+
+    @staticmethod
+    def _jpeg(size, quality, noise=False):
+        if noise:
+            img = main.PILImage.effect_noise(size, 64)
+        else:
+            img = main.PILImage.new("RGB", size, (120, 130, 140))
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=quality)
+        return buf.getvalue()
+
+    def test_large_image_is_resized_and_reencoded(self):
+        data = self._jpeg((3000, 1500), 95, noise=True)
+        out, compressed = self.plugin._prepare_image(data)
+        self.assertTrue(compressed)
+        with main.PILImage.open(io.BytesIO(out)) as img:
+            self.assertEqual(img.size, (1920, 960))
+            self.assertEqual(img.format, "JPEG")
+
+    def test_small_image_is_left_untouched(self):
+        data = self._jpeg((50, 40), 95)
+        out, compressed = self.plugin._prepare_image(data)
+        self.assertFalse(compressed)
+        self.assertEqual(out, data)
+
+    def test_animated_gif_is_not_reencoded(self):
+        frames = [main.PILImage.new("RGB", (60, 60), (i * 80, 10, 10)) for i in range(3)]
+        buf = io.BytesIO()
+        frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:], duration=100, loop=0)
+        data = buf.getvalue()
+        out, compressed = self.plugin._prepare_image(data)
+        self.assertFalse(compressed)
+        self.assertEqual(out, data)
+
+    def test_transparent_png_gets_white_background(self):
+        img = main.PILImage.effect_noise((1000, 1000), 64).convert("RGBA")
+        alpha = main.PILImage.new("L", img.size, 255)
+        alpha.paste(main.PILImage.new("L", (1000, 500), 0), (0, 500))
+        img.putalpha(alpha)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        out, compressed = self.plugin._prepare_image(buf.getvalue())
+        self.assertTrue(compressed)
+        with main.PILImage.open(io.BytesIO(out)) as result:
+            self.assertEqual(result.format, "JPEG")
+            self.assertEqual(result.getpixel((500, 750)), (255, 255, 255))
+
+    def test_corrupt_data_returns_none(self):
+        junk = b"\x00" * (main.COMPRESS_MIN_BYTES + 1024)
+        self.assertIsNone(self.plugin._prepare_image(junk))
+
+    def test_not_smaller_result_keeps_original(self):
+        data = self._jpeg((3500, 2500), 15, noise=True)
+        self.plugin.settings["compressMaxSide"] = 4000  # 不缩放，仅重编码
+        out, compressed = self.plugin._prepare_image(data)
+        self.assertFalse(compressed)
+        self.assertEqual(out, data)
+
+
+class DownloadImageTests(unittest.TestCase):
+    """_download_image：成功下载、大小上限、鉴权头同域限制与异常回退。"""
+
+    def setUp(self):
+        self.plugin = main.CloudflareImgbedRandomPlugin(types.SimpleNamespace(get_config=lambda: {}), config={})
+        self.plugin.settings = {
+            "imgbedDomain": "https://img.example",
+            "apiToken": "Bearer tok",
+            "timeout": 5,
+        }
+
+    def _run_download(self, url, status, body):
+        captured = {}
+
+        class FakeSession:
+            def get(self, got_url, **kwargs):
+                captured["url"] = got_url
+                captured["headers"] = kwargs.get("headers")
+
+                class Content:
+                    async def read(self, _limit):
+                        return body
+
+                class FakeResponse:
+                    def __init__(self):
+                        self.status = status
+                        self.headers = {}
+                        self.content = Content()
+
+                    async def __aenter__(self):
+                        return self
+
+                    async def __aexit__(self, *_args):
+                        return False
+
+                return FakeResponse()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+        original_session = main.aiohttp.ClientSession
+        main.aiohttp.ClientSession = FakeSession
+        try:
+            result = asyncio.run(self.plugin._download_image(url))
+        finally:
+            main.aiohttp.ClientSession = original_session
+        return result, captured
+
+    def test_success_returns_bytes(self):
+        result, _ = self._run_download("https://img.example/file/a.jpg", 200, b"img")
+        self.assertEqual(result, b"img")
+
+    def test_non_200_returns_none(self):
+        result, _ = self._run_download("https://img.example/file/a.jpg", 404, b"")
+        self.assertIsNone(result)
+
+    def test_oversize_returns_none(self):
+        body = b"x" * (main.MAX_IMAGE_BYTES + 1)
+        result, _ = self._run_download("https://img.example/file/a.jpg", 200, body)
+        self.assertIsNone(result)
+
+    def test_auth_header_only_for_same_domain(self):
+        _, captured = self._run_download("https://img.example/file/a.jpg", 200, b"x")
+        self.assertEqual(captured["headers"], {"Authorization": "Bearer tok"})
+        _, captured = self._run_download("https://cdn.other/file/a.jpg", 200, b"x")
+        self.assertEqual(captured["headers"], {})
+
+    def test_network_error_returns_none(self):
+        import aiohttp
+
+        class FailingSession:
+            def get(self, *_args, **_kwargs):
+                raise aiohttp.ClientError("boom")
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+        original_session = main.aiohttp.ClientSession
+        main.aiohttp.ClientSession = FailingSession
+        try:
+            result = asyncio.run(self.plugin._download_image("https://img.example/file/a.jpg"))
+        finally:
+            main.aiohttp.ClientSession = original_session
+        self.assertIsNone(result)
+
+
+class ImageHistoryTests(unittest.TestCase):
+    """_remember_image 历史记录与 /原图 的文件名匹配逻辑。"""
+
+    def setUp(self):
+        self.plugin = main.CloudflareImgbedRandomPlugin(types.SimpleNamespace(get_config=lambda: {}), config={})
+
+    @staticmethod
+    def _event(uo="session:A"):
+        return types.SimpleNamespace(unified_msg_origin=uo)
+
+    def test_remember_and_cap_history(self):
+        for i in range(main.MAX_HISTORY_PER_SESSION + 2):
+            self.plugin._remember_image(self._event(), f"https://img.example/file/pic{i}.jpg")
+        history = self.plugin._image_history["session:A"]
+        self.assertEqual(len(history), main.MAX_HISTORY_PER_SESSION)
+        self.assertNotIn("pic0.jpg", history)
+        self.assertEqual(next(reversed(history)), "pic31.jpg")
+
+    def test_remember_without_filename_is_ignored(self):
+        self.plugin._remember_image(self._event(), "https://img.example/random")
+        self.assertEqual(self.plugin._image_history, {})
+
+    def test_match_exact_case_insensitive(self):
+        self.plugin._remember_image(self._event(), "https://img.example/file/dir/Guerlain.jpg")
+        history = self.plugin._image_history["session:A"]
+        status, payload = main.CloudflareImgbedRandomPlugin._match_image_history(history, "guerlain.jpg")
+        self.assertEqual(status, "found")
+        self.assertEqual(payload[1], "https://img.example/file/dir/Guerlain.jpg")
+
+    def test_match_stem_and_substring(self):
+        self.plugin._remember_image(self._event(), "https://img.example/file/photo.png")
+        history = self.plugin._image_history["session:A"]
+        status, _ = main.CloudflareImgbedRandomPlugin._match_image_history(history, "photo")
+        self.assertEqual(status, "found")
+        status, _ = main.CloudflareImgbedRandomPlugin._match_image_history(history, "hot")
+        self.assertEqual(status, "found")
+
+    def test_match_ambiguous_and_missing(self):
+        self.plugin._remember_image(self._event(), "https://img.example/file/Guerlain.jpg")
+        self.plugin._remember_image(self._event(), "https://img.example/file/Guerlain.png")
+        history = self.plugin._image_history["session:A"]
+        status, candidates = main.CloudflareImgbedRandomPlugin._match_image_history(history, "guerlain")
+        self.assertEqual(status, "ambiguous")
+        self.assertEqual(len(candidates), 2)
+        status, _ = main.CloudflareImgbedRandomPlugin._match_image_history(history, "不存在.jpg")
+        self.assertEqual(status, "missing")
+        status, _ = main.CloudflareImgbedRandomPlugin._match_image_history(history, "")
+        self.assertEqual(status, "missing")
+
+
+class HandlerTests(unittest.TestCase):
+    """/原图 命令与 _handle_media 压缩发送/回退路径。"""
+
+    class FakeEvent:
+        def __init__(self, message_str="", uo="session:A"):
+            self.message_str = message_str
+            self.unified_msg_origin = uo
+            self.results = []
+
+        def plain_result(self, text):
+            self.results.append(("plain", text))
+            return ("plain", text)
+
+        def chain_result(self, chain):
+            self.results.append(("chain", chain))
+            return ("chain", chain)
+
+    def setUp(self):
+        self.plugin = main.CloudflareImgbedRandomPlugin(types.SimpleNamespace(get_config=lambda: {}), config={})
+        self.plugin.settings = {
+            "showFileInfo": True,
+            "enableCompress": True,
+            "compressMaxSide": 1920,
+            "compressQuality": 85,
+        }
+
+    @staticmethod
+    def _run(agen, event):
+        async def runner():
+            async for item in agen:
+                event.results.append(item)
+
+        asyncio.run(runner())
+
+    def _fake_media_source(self, url):
+        async def fake_get(directory, content_type):
+            return url
+
+        self.plugin._get_random_media = fake_get
+
+    def test_handle_media_uses_compressed_bytes(self):
+        event = self.FakeEvent("/随机图")
+        self._fake_media_source("https://img.example/file/dir/pic.jpg")
+
+        async def fake_download(_url):
+            return b"original-bytes"
+
+        self.plugin._download_image = fake_download
+        self.plugin._prepare_image = lambda _data: (b"small-bytes", True)
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        kind, chain = event.results[0]
+        caption, image = chain
+        self.assertEqual(kind, "chain")
+        self.assertIn("已压缩", caption)
+        self.assertIn("/原图 pic.jpg", caption)
+        self.assertEqual(image, {"type": "bytes", "data": b"small-bytes"})
+        self.assertEqual(self.plugin._image_history["session:A"]["pic.jpg"], "https://img.example/file/dir/pic.jpg")
+
+    def test_original_hint_falls_back_without_filename(self):
+        event = self.FakeEvent("/随机图")
+        self._fake_media_source("https://img.example/t/abc123")
+
+        async def fake_download(_url):
+            return b"original-bytes"
+
+        self.plugin._download_image = fake_download
+        self.plugin._prepare_image = lambda _data: (b"small-bytes", True)
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        caption, image = event.results[0][1]
+        self.assertEqual(caption, "随机图片发送成功（已压缩，发送 /原图 可获取原图）")
+        self.assertEqual(image, {"type": "bytes", "data": b"small-bytes"})
+
+    def test_handle_media_falls_back_when_download_fails(self):
+        event = self.FakeEvent("/随机图")
+        self._fake_media_source("https://img.example/file/pic.jpg")
+
+        async def fake_download(_url):
+            return None
+
+        self.plugin._download_image = fake_download
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        caption, image = event.results[0][1]
+        self.assertNotIn("已压缩", caption)
+        self.assertEqual(image, {"type": "url", "url": "https://img.example/file/pic.jpg"})
+
+    def test_handle_media_skips_compression_when_disabled(self):
+        self.plugin.settings["enableCompress"] = False
+        event = self.FakeEvent("/随机图")
+        self._fake_media_source("https://img.example/file/pic.jpg")
+
+        async def fail_download(_url):
+            raise AssertionError("关闭压缩时不应下载图片")
+
+        self.plugin._download_image = fail_download
+        self._run(self.plugin._handle_media(event, "image"), event)
+
+        _, image = event.results[0][1]
+        self.assertEqual(image, {"type": "url", "url": "https://img.example/file/pic.jpg"})
+
+    def test_original_image_without_history(self):
+        event = self.FakeEvent("/原图")
+        self._run(self.plugin.original_image(event), event)
+        kind, text = event.results[0]
+        self.assertEqual(kind, "plain")
+        self.assertIn("还没有发送过随机图片", text)
+
+    def test_original_image_returns_latest(self):
+        self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/first.jpg")
+        self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/second.jpg")
+        event = self.FakeEvent("/原图")
+        self._run(self.plugin.original_image(event), event)
+
+        caption, image = event.results[0][1]
+        self.assertIn("（原图）", caption)
+        self.assertEqual(image, {"type": "url", "url": "https://img.example/file/second.jpg"})
+
+    def test_original_image_by_filename(self):
+        self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/first.jpg")
+        event = self.FakeEvent("/原图 first.jpg")
+        self._run(self.plugin.original_image(event), event)
+
+        caption, image = event.results[0][1]
+        self.assertIn("（原图）", caption)
+        self.assertEqual(image, {"type": "url", "url": "https://img.example/file/first.jpg"})
+
+    def test_original_image_ambiguous(self):
+        self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/Guerlain.jpg")
+        self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/Guerlain.png")
+        event = self.FakeEvent("/原图 guerlain")
+        self._run(self.plugin.original_image(event), event)
+
+        kind, text = event.results[0]
+        self.assertEqual(kind, "plain")
+        self.assertIn("匹配到多张图片", text)
+
+    def test_original_image_missing(self):
+        self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/first.jpg")
+        event = self.FakeEvent("/原图 nope.jpg")
+        self._run(self.plugin.original_image(event), event)
+
+        kind, text = event.results[0]
+        self.assertEqual(kind, "plain")
+        self.assertIn("没有找到", text)
+
+    def test_original_image_isolated_by_session(self):
+        self.plugin._remember_image(self.FakeEvent(uo="session:A"), "https://img.example/file/a.jpg")
+        event = self.FakeEvent("/原图", uo="session:B")
+        self._run(self.plugin.original_image(event), event)
+        self.assertIn("还没有发送过随机图片", event.results[0][1])
 
 
 if __name__ == "__main__":
