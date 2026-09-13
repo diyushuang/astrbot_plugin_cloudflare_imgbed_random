@@ -1,5 +1,22 @@
 # 更新日志
 
+## v2.0.0 (2026-09-13)
+
+**重大变更**
+- 💥 配置结构升级为官方 Schema 支持的嵌套结构：`imgbed.*`、`message.*`、`image.*`；`apiToken` 标记为 `secret`，`image.maxSide` 在运行时限制为 `1`–`4096`
+- 💥 图片默认发送方式改为 `scaled-url`：优先使用 ImgBed 官方 `width` / `height` / `fallback=original` 参数发送等比缩放图，消息文案标注「已压缩」并附带 `/原图 文件名`
+- 💥 `image.quality` 仅用于 `local-compress`；ImgBed 读取 API 不支持 `quality` 参数，`scaled-url` 不再附加该参数
+
+**兼容迁移**
+- 🔄 旧顶层配置会自动迁移为新嵌套配置，保留未识别配置项，并写回 AstrBot 插件配置文件；写回失败时恢复配置对象旧结构且本次运行继续使用内存迁移结果
+- 🔄 旧 `imageSendMode=url` + `enableCompress=true/false` 分别映射为 `scaled-url` / `original-url`；旧 `imageSendMode=compress` + `enableCompress=true/false` 分别映射为 `local-compress` / `original-url`
+
+**规范化**
+- 📚 按 AstrBot 插件配置与消息发送规范、NapCat OneBot 图片消息段规范、CloudFlare ImgBed 随机图/读取 API 规范整理实现与 README
+- 🖼️ `original-url` 直传原 URL；`local-compress` 沿用 Pillow 压缩链路；`/原图` 始终直传未修改原 URL 并保留「（原图）」标注
+- 🛡️ AVIF/HEIC/SVG 等协议端难以解析宽高的格式在 `scaled-url` 下仍降级为本地压缩；非 aiocqhttp 平台或 OneBot 调用失败时回退标准消息链
+- ✅ 单元测试扩展至 75 个：覆盖配置迁移写回与失败回滚、Schema 字段规范、URL 构造、三种发送模式与 `/原图` 行为
+
 ## v1.4.0 (2026-09-13)
 
 **修复**

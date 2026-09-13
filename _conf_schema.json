@@ -1,77 +1,94 @@
 {
-  "imgbedDomain": {
-    "description": "CloudFlare ImgBed 图床域名",
-    "type": "string",
-    "hint": "请输入图床的域名，例如：https://your-domain",
-    "default": ""
+  "imgbed": {
+    "type": "object",
+    "description": "CloudFlare ImgBed 连接配置",
+    "items": {
+      "domain": {
+        "type": "string",
+        "description": "图床域名",
+        "hint": "请输入 CloudFlare ImgBed 的域名，例如：https://your-domain",
+        "default": ""
+      },
+      "apiEndpoint": {
+        "type": "string",
+        "description": "随机图 API 路径",
+        "hint": "请输入 API 路径，例如：/random 或 /api/random.html",
+        "default": "/random"
+      },
+      "apiToken": {
+        "type": "string",
+        "description": "API Token（可选）",
+        "hint": "如果 API 需要鉴权，请输入完整 Authorization 头，例如：Bearer YOUR_API_TOKEN",
+        "default": "",
+        "secret": true
+      },
+      "defaultDir": {
+        "type": "string",
+        "description": "默认目录（可选）",
+        "hint": "设置默认获取图片的目录，使用相对路径，例如：img/wallpaper",
+        "default": ""
+      },
+      "timeout": {
+        "type": "float",
+        "description": "API 请求超时时间（秒）",
+        "hint": "设置随机图 API 请求的超时时间，最小 0.1 秒，默认为 10 秒",
+        "default": 10.0
+      },
+      "retryCount": {
+        "type": "int",
+        "description": "API 请求重试次数",
+        "hint": "设置随机图 API 请求失败后的重试次数，最小 0 次，默认为 3 次",
+        "default": 3
+      }
+    }
   },
-  "apiEndpoint": {
-    "description": "API 接口路径",
-    "type": "string",
-    "hint": "请输入API接口路径，例如：/random 或 /api/random.html",
-    "default": "/random"
+  "message": {
+    "type": "object",
+    "description": "消息输出配置",
+    "items": {
+      "showFileInfo": {
+        "type": "bool",
+        "description": "发送时附带文件名",
+        "hint": "开启后随机图片/视频消息会附带文件名",
+        "default": true
+      },
+      "enableLLM": {
+        "type": "bool",
+        "description": "启用 LLM 工具调用",
+        "hint": "开启后可通过 LLM 调用插件；关闭后只允许通过命令调用插件",
+        "default": true
+      }
+    }
   },
-  "apiToken": {
-    "description": "API Token（可选）",
-    "type": "string",
-    "hint": "如果API需要鉴权，请输入API Token，格式：Bearer YOUR_API_TOKEN",
-    "default": ""
-  },
-  "defaultDir": {
-    "description": "默认目录（可选）",
-    "type": "string",
-    "hint": "设置默认获取图片的目录，使用相对路径，例如：img/wallpaper",
-    "default": ""
-  },
-  "timeout": {
-    "description": "API请求超时时间（秒）",
-    "type": "int",
-    "hint": "设置API请求的超时时间，默认为10秒",
-    "default": 10
-  },
-  "retryCount": {
-    "description": "API请求重试次数",
-    "type": "int",
-    "hint": "设置API请求失败后的重试次数，默认为3次",
-    "default": 3,
-    "min": 0
-  },
-  "enableLLM": {
-    "description": "启用LLM调用",
-    "type": "bool",
-    "hint": "开启后可通过LLM调用插件，关闭后只允许通过命令调用插件",
-    "default": true
-  },
-  "showFileInfo": {
-    "description": "发送时附带文件名",
-    "type": "bool",
-    "hint": "开启后随机图片/视频消息会附带图片文件名",
-    "default": true
-  },
-  "imageSendMode": {
-    "description": "图片发送方式",
-    "type": "string",
-    "hint": "url：直接把原图链接交给QQ协议端发送，速度最快且聊天气泡显示原始比例（推荐）；compress：插件先下载压缩再发送，适用于协议端无法访问图床的情况。AVIF/HEIC等协议端无法解析的格式会自动改用compress",
-    "options": ["url", "compress"],
-    "default": "url"
-  },
-  "enableCompress": {
-    "description": "compress 模式下启用图片压缩",
-    "type": "bool",
-    "hint": "仅在 imageSendMode=compress 时生效：开启后随机图片先下载压缩再发送；需要安装 Pillow，失败时自动回退为原图直发。可用 /原图 命令找回原图",
-    "default": true
-  },
-  "compressMaxSide": {
-    "description": "压缩后图片最长边（像素）",
-    "type": "int",
-    "hint": "压缩时把图片最长边缩放到该像素值（等比缩放），默认为1920",
-    "default": 1920
-  },
-  "compressQuality": {
-    "description": "压缩质量（1-100）",
-    "type": "int",
-    "hint": "JPEG压缩质量，数值越高质量越好、体积越大，默认为85",
-    "default": 85,
-    "min": 1
+  "image": {
+    "type": "object",
+    "description": "图片发送配置",
+    "items": {
+      "sendMode": {
+        "type": "string",
+        "description": "图片发送方式",
+        "hint": "scaled-url：通过 ImgBed 服务端等比缩放后发送（默认，需开启图片尺寸处理）；original-url：直传原图 URL；local-compress：插件下载后本地压缩",
+        "options": ["scaled-url", "original-url", "local-compress"],
+        "default": "scaled-url"
+      },
+      "enableProcessing": {
+        "type": "bool",
+        "description": "启用图片处理",
+        "hint": "开启后 scaled-url 会附加官方尺寸参数；关闭后 scaled-url 直传原图 URL",
+        "default": true
+      },
+      "maxSide": {
+        "type": "int",
+        "description": "图片最长边（像素）",
+        "hint": "范围 1-4096；scaled-url 模式下作为 width/height 最大边界；local-compress 模式下作为本地等比缩放上限",
+        "default": 1920
+      },
+      "quality": {
+        "type": "int",
+        "description": "本地 JPEG 压缩质量",
+        "hint": "范围 1-100；仅 local-compress 模式使用；CloudFlare ImgBed 读取 API 不支持 quality 参数",
+        "default": 85
+      }
+    }
   }
 }
