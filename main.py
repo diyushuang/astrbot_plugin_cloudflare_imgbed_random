@@ -17,6 +17,7 @@ import re
 from collections import OrderedDict
 from urllib.parse import (
     parse_qsl,
+    quote,
     unquote,
     urlencode,
     urljoin,
@@ -89,6 +90,16 @@ IMAGE_SEND_MODES = {"scaled-url", "original-url", "local-compress"}
 IMGBED_MANAGED_QUERY_KEYS = {"width", "height", "fit", "fallback"}
 # 走 OneBot 原生接口直传的平台名，其余平台一律使用标准消息链发送
 AIOCQHTTP_PLATFORM_NAME = "aiocqhttp"
+# 会话历史单键长度上限：文件名/别名均截断到该长度，避免超长键撑爆内存与日志
+HISTORY_KEY_MAX_LENGTH = 256
+# 匹配到多张图时最多回显的候选名数量
+MAX_AMBIGUOUS_CANDIDATES = 5
+# /原图 文件名直查图床的探测结果（HTTP 状态码语义）：
+#   存在=2xx/206；确定不存在=404/410；其余（403 防盗链、429 限流、405 方法不允许、
+#   网络异常等）一律为 None「说不准」——这些码只代表「这次没读到」，不代表资源不存在，
+#   若把它们当作不存在，/原图 会在文件确实存在时误报未找到。
+EXISTS_STATUSES = frozenset({200, 206})
+NOT_FOUND_STATUSES = frozenset({404, 410})
 LEGACY_CONFIG_KEYS = {
     "imgbedDomain",
     "apiEndpoint",
@@ -130,6 +141,120 @@ def _as_float(value, default):
 def _bounded_int(value, default, minimum, maximum):
     number = _as_int(value, default)
     return min(max(number, minimum), maximum)
+
+
+# Cloudflare Image Resizing 的路径式缩放前缀（/cdn-cgi/image/<opts>/file/xxx）
+_CF_IMAGE_PREFIX = "/cdn-cgi/image/"
+
+
+def _is_imgbed_url(url: str) -> bool:
+    """按 CloudFlare ImgBed 标准 /file/ 路径识别可缩放直链。
+
+    同时识别 Cloudflare Image Resizing 路径式（/cdn-cgi/image/.../file/...）：
+    这种 URL 的源文件仍是 ImgBed /file/ 直链，只是缩放参数嵌在路径里。
+    """
+    try:
+        parsed = urlsplit(str(url or ""))
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return False
+        path = unquote(parsed.path)
+        if path.startswith("/file/"):
+            return True
+        if path.startswith(_CF_IMAGE_PREFIX):
+            # /cdn-cgi/image/.../file/... 才算——源文件必须仍在 /file/ 下
+            return "/file/" in path[len(_CF_IMAGE_PREFIX) :]
+        return False
+    except Exception:
+        return False
+
+
+def _extract_file_path(path: str) -> str | None:
+    """从 ImgBed URL 路径中提取 /file/... 部分，识别不到返回 None。
+
+    /file/abc.jpg                    -> /file/abc.jpg
+    /cdn-cgi/image/opts/file/abc.jpg -> /file/abc.jpg
+    """
+    path = unquote(path)
+    if path.startswith("/file/"):
+        return path
+    if path.startswith(_CF_IMAGE_PREFIX):
+        rest = path[len(_CF_IMAGE_PREFIX) :]
+        index = rest.find("/file/")
+        if index >= 0:
+            return rest[index:]
+    return None
+
+
+def _build_original_url(url: str) -> str:
+    """还原 CloudFlare ImgBed 读取 API 意义上的「未处理原文件」直链。
+
+    与 _build_scaled_media_url 严格对称，是 /原图 的核心：
+    - query 风格：剥离 width/height/fit/fallback 等图床处理参数；
+    - cf-path 风格：剥离 /cdn-cgi/image/<opts> 前缀，还原为 /file/ 直链。
+
+    非 ImgBed 直链原样返回（第三方地址不该被本插件改写）。
+    路径统一重新编码：_extract_file_path 为匹配方便返回解引号路径，
+    若直接拿去拼 URL，文件名里的空格/中文/特殊字符会原样进入 URL，
+    协议端会截断或拒收。
+    """
+    if not _is_imgbed_url(url):
+        return url
+    parsed = urlsplit(url)
+    file_path = _extract_file_path(parsed.path)
+    if not file_path:
+        return url
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() not in IMGBED_MANAGED_QUERY_KEYS
+    ]
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            quote(file_path, safe="/:"),
+            urlencode(query),
+            parsed.fragment,
+        )
+    )
+
+
+def _build_imgbed_file_url(base_url: str, file_name: str) -> str | None:
+    """按 ImgBed 公开直链口径拼出 `{base}/file/{文件名}`，非法输入返回 None。
+
+    供 /原图 在会话历史未命中时直接按文件名到图床取原图。文件名允许带目录
+    （如 `2026/09/abc.jpg`），但拒绝一切可能拼出跨站或路径穿越的输入：绝对
+    URL、`..`、`//`、空名一律返回 None。拼出的结果还必须落回 ImgBed 的
+    /file/ 口径，避免 base 配错时发出一条语法合法却指向别处的链接。
+    """
+    base = str(base_url or "").strip().rstrip("/")
+    name = str(file_name or "").strip().strip("/")
+    if not base or not name or ".." in name or "//" in name:
+        return None
+    # 反斜杠会被部分代理/协议端按路径分隔符解释，可能绕出 /file/ 前缀
+    if "\\" in name or any(char in name for char in "\r\n\t"):
+        return None
+    parsed = urlsplit(name)
+    if parsed.scheme or parsed.netloc:
+        return None
+    candidate = f"{base}/file/{quote(unquote(name), safe='/')}"
+    return candidate if _is_imgbed_url(candidate) else None
+
+
+def _classify_probe_status(status) -> bool | None:
+    """HTTP 状态码 → 资源是否存在：2xx/206 存在、404/410 不存在、其余 None。
+
+    只有「确定不存在」才返回 False，且仅限 404/410 这两个语义明确的码。
+    403（防盗链/访问规则拒绝）、429（限流）、405（方法不允许）都只能说明
+    「这次没读到」，代表不了资源的存在性，一律归入 None（说不准）。
+    """
+    if status is None:
+        return None
+    if status in EXISTS_STATUSES:
+        return True
+    if status in NOT_FOUND_STATUSES:
+        return False
+    return None
 
 
 def _default_settings():
@@ -207,7 +332,7 @@ def _migrate_legacy_config(config):
     "astrbot_plugin_cloudflare_imgbed_random",
     "diyushuang",
     "从CloudFlare ImgBed图床中获取随机图片",
-    "2.0.2",
+    "2.0.3",
 )
 class CloudflareImgbedRandomPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -487,14 +612,134 @@ class CloudflareImgbedRandomPlugin(Star):
         """获取会话唯一标识，用于隔离 /原图 的图片历史。"""
         return str(getattr(event, "unified_msg_origin", None) or "default")
 
-    def _remember_image(self, event: AstrMessageEvent, media_url: str):
-        """把发送过的随机图片记入会话历史，供 /原图 命令找回。"""
-        filename = self._extract_media_filename(media_url)
-        if not filename:
+    @staticmethod
+    def _strip_command(message: str, keyword: str = "原图") -> str:
+        """取命令关键词之后的内容（作为 /原图 的文件名参数）。
+
+        用 find 而非正则：消息里可能带 @ 前缀、引用等噪声，find 定位更宽容。
+        关键词缺失时返回空串（而非整条消息）——否则「/原图」被误读成文件名。
+        """
+        text = str(message or "").strip()
+        index = text.find(keyword)
+        if index == -1:
+            return ""
+        return text[index + len(keyword) :].strip(" \t:：,，")
+
+    def _imgbed_base(self) -> str:
+        """/原图 直查用的图床站点地址。
+
+        取已加载配置里的图床域名；域名非法或未配置时返回空串，由调用方给出
+        「未配置图床站点」的提示，而不是拼一条必然 404 的链接。
+        """
+        domain = str(self.settings.get("imgbed", {}).get("domain") or "").strip().rstrip("/")
+        if not domain.lower().startswith(("http://", "https://")):
+            return ""
+        parsed = urlparse(domain)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        return domain
+
+    async def _probe_url_exists(self, url: str):
+        """轻量探测 URL 是否存在，返回 True / False / None（说不准）。
+
+        只判存在性、不读响应体：HEAD 优先，失败或不被允许时退化为 Range: bytes=0-0
+        的单字节 GET（部分图床/CDN 拒绝 HEAD）。任何网络异常一律返回 None——
+        「探测不出来」与「确定不存在」必须分开，网络抖动不该被当成
+        「图床没有这张图」，否则 /原图 会在图床临时抽风时误报未找到。
+        """
+        imgbed_settings = self.settings.get("imgbed", {})
+        timeout = aiohttp.ClientTimeout(total=imgbed_settings.get("timeout", 10.0))
+        headers = {}
+        if imgbed_settings.get("apiToken"):
+            domain_host = urlparse(imgbed_settings.get("domain", "")).netloc
+            if domain_host and urlparse(url).netloc == domain_host:
+                headers["Authorization"] = imgbed_settings["apiToken"]
+        try:
+            async with aiohttp.ClientSession() as session:
+                for method in ("HEAD", "GET"):
+                    request_headers = dict(headers)
+                    if method == "GET":
+                        # HEAD 不可用时用最小 Range 只取 1 字节，避免整图传输
+                        request_headers["Range"] = "bytes=0-0"
+                    try:
+                        async with session.request(
+                            method,
+                            url,
+                            allow_redirects=True,
+                            headers=request_headers,
+                            timeout=timeout,
+                        ) as response:
+                            verdict = _classify_probe_status(response.status)
+                    except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+                        logger.warning(
+                            f"[astrbot_plugin_cloudflare_imgbed_random] {method} 探测失败: {exc}"
+                        )
+                        return None
+                    if verdict is not None:
+                        return verdict
+                    # 状态码语义不明确（403/429/405 等）：换另一种方法再探一次
+                return None
+        except Exception as exc:
+            logger.warning(f"[astrbot_plugin_cloudflare_imgbed_random] 探测原图失败: {exc}")
+        return None
+
+    async def _lookup_imgbed_file(self, name: str):
+        """按文件名到图床直查原图，返回 (名称, 直链, 失败提示)。
+
+        探测为「确定不存在」（404/410）时返回空直链并给出提示，同时附上尝试过的
+        完整直链，便于用户核对图床里的目录层级；探测结果未知（403/网络异常）不拦，
+        仍把直链交给回传——宁可发出去让协议端自己判断，也不要替用户断定图不存在。
+        """
+        base = self._imgbed_base()
+        if not base:
+            return (
+                "",
+                "",
+                (
+                    "未配置图床域名，无法按文件名取原图：请先在插件配置中填写图床域名，"
+                    "或先使用 /随机图 后再用 /原图。"
+                ),
+            )
+        candidate = _build_imgbed_file_url(base, name)
+        if not candidate:
+            return (
+                "",
+                "",
+                (
+                    f"「{name}」不像图床里的文件名，无法直接取原图；"
+                    "可先使用 /随机图 获取图片后再用 /原图。"
+                ),
+            )
+        exists = await self._probe_url_exists(candidate)
+        if exists is False:
+            return "", "", f"图床里没有找到「{name}」，已尝试：{candidate}"
+        return name, candidate, ""
+
+    def _remember_image(self, event: AstrMessageEvent, media_url: str, display_name=None):
+        """把发送过的随机图片记入会话历史，供 /原图 命令找回。
+
+        主键是 URL 文件名。历史记录必须能命中用户在群里看到的那个名字，因此
+        当 display_name 与 URL 文件名不同时额外登记一个别名键（两个键指向同一
+        URL）——否则用户复制配文里的名字来 /原图，明明刚发过却被告知没找到。
+        URL 解析不出文件名时，只要 display_name 可用仍登记，避免该图完全丢失。
+        """
+        target = str(media_url or "").strip()
+        if not target:
+            return
+        primary = self._extract_media_filename(target)
+        alias = str(display_name or "").strip()
+        keys = []
+        if primary:
+            keys.append(primary[:HISTORY_KEY_MAX_LENGTH])
+        if alias and (not primary or alias.lower() != primary.lower()):
+            keys.append(alias[:HISTORY_KEY_MAX_LENGTH])
+        if not keys:
             return
         history = self._image_history.setdefault(self._get_session_key(event), OrderedDict())
-        history.pop(filename, None)
-        history[filename] = media_url
+        for key in keys:
+            # 先删后插：同键重记等价于把该键移到末尾，实现 LRU 语义
+            history.pop(key, None)
+            history[key] = target
         while len(history) > MAX_HISTORY_PER_SESSION:
             history.popitem(last=False)
         while len(self._image_history) > MAX_HISTORY_SESSIONS:
@@ -507,7 +752,10 @@ class CloudflareImgbedRandomPlugin(Star):
         依次尝试精确文件名（忽略大小写）、不带扩展名的名字、唯一子串匹配；
         返回 (状态, 数据)：状态为 "found"（数据为 (文件名, URL)）、
         "ambiguous"（数据为候选文件名列表，需用户精确化）或 "missing"。
+        history 为空时同样返回 "missing"，由调用方区分「无历史」与「没找到」。
         """
+        if not history:
+            return "missing", None
         query = query.strip().lower()
         if not query:
             return "missing", None
@@ -967,6 +1215,8 @@ class CloudflareImgbedRandomPlugin(Star):
 
             path = urlparse(media_url).path.lower()
             if content_type == "image" or any(path.endswith(ext) for ext in IMAGE_EXTENSIONS):
+                # 历史留存原图直链：scaled-url 模式发出的可能是缩放地址，但
+                # /原图 会再剥离处理参数，这里记原 URL 即可
                 self._remember_image(event, media_url)
                 caption = self._build_media_caption(media_url, "图片")
                 async for result in self._send_image(event, caption, media_url):
@@ -989,32 +1239,44 @@ class CloudflareImgbedRandomPlugin(Star):
         """重发随机图片的原图：不带参数取最近一张，可带文件名指定某一张。"""
         try:
             message = self._get_message_text(event) or ""
-            match = re.search(r"原图\s*(.*)", message)
-            query = (match.group(1) if match else "").strip(" \t:：,，")
+            query = self._strip_command(message)
 
-            history = self._image_history.get(self._get_session_key(event))
-            if not history:
-                yield event.plain_result("本会话还没有发送过随机图片，请先使用 /随机图")
-                return
+            history = self._image_history.get(self._get_session_key(event)) or {}
+            filename = ""
+            url = ""
 
             if query:
                 status, payload = self._match_image_history(history, query)
-                if status == "missing":
-                    yield event.plain_result(
-                        f"没有找到「{query}」，只能找回本会话最近发送过的随机图片"
-                    )
-                    return
                 if status == "ambiguous":
-                    candidates = "、".join(payload[:5])
+                    candidates = "、".join(payload[:MAX_AMBIGUOUS_CANDIDATES])
                     yield event.plain_result(f"匹配到多张图片，请写出更完整的文件名：{candidates}")
                     return
-                filename, url = payload
-            else:
+                if status == "found":
+                    filename, url = payload
+                # status == "missing"：本会话没匹配上，交给下面的图床直查兜底
+            elif history:
                 filename = next(reversed(history))
                 url = history[filename]
+            # 无参数且无历史：query 保持为空，由下方的兜底分支给出用法提示
 
+            if not url:
+                if not query:
+                    yield event.plain_result(
+                        "本会话还没有发送过随机图片，请先使用 /随机图。\n"
+                        "也可直接用文件名到图床取原图：/原图 文件名"
+                    )
+                    return
+                filename, url, message = await self._lookup_imgbed_file(query)
+                if not url:
+                    yield event.plain_result(message)
+                    return
+
+            # 剥离 ImgBed 处理参数，还原「未处理原文件」：历史里可能存的是带
+            # width/height/fallback 的缩放地址，直接重发拿回的仍是压缩图。
             caption = self._build_media_caption(url, "图片") + "（原图）"
-            async for result in self._send_image(event, caption, url, force_url=True):
+            async for result in self._send_image(
+                event, caption, _build_original_url(url), force_url=True
+            ):
                 yield result
         except Exception as exc:
             logger.error(f"[astrbot_plugin_cloudflare_imgbed_random] 原图命令处理失败: {exc}")

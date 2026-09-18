@@ -1057,14 +1057,87 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(kind, "plain")
         self.assertIn("匹配到多张图片", text)
 
-    def test_original_image_missing(self):
+    def test_original_image_missing_falls_back_to_imgbed_lookup(self):
+        # 本会话没匹配上时退化到「按文件名到图床直查」
         self.plugin._remember_image(self.FakeEvent(), "https://img.example/file/first.jpg")
         event = self.FakeEvent("/原图 nope.jpg")
         self._run(self.plugin.original_image(event), event)
 
         kind, text = event.results[0]
         self.assertEqual(kind, "plain")
+        # 未配置图床域名：给出可操作的配置提示，而不是静默退回「没找到」
+        self.assertIn("未配置图床域名", text)
+
+    def test_original_image_lookup_hit_sends_original_url(self):
+        self.plugin.settings["imgbed"]["domain"] = "https://img.example"
+
+        async def fake_probe(_url):
+            return True
+
+        self.plugin._probe_url_exists = fake_probe
+        event = self.FakeEvent("/原图 风景.jpg")
+        self._run(self.plugin.original_image(event), event)
+
+        caption, image = event.results[0][1]
+        self.assertIn("（原图）", caption)
+        # 中文文件名按 URL 规则编码，避免协议端截断
+        self.assertEqual(
+            image, {"type": "url", "url": "https://img.example/file/%E9%A3%8E%E6%99%AF.jpg"}
+        )
+
+    def test_original_image_lookup_not_found_reports_attempted_url(self):
+        self.plugin.settings["imgbed"]["domain"] = "https://img.example"
+
+        async def fake_probe(_url):
+            return False
+
+        self.plugin._probe_url_exists = fake_probe
+        event = self.FakeEvent("/原图 nope.jpg")
+        self._run(self.plugin.original_image(event), event)
+
+        kind, text = event.results[0]
+        self.assertEqual(kind, "plain")
         self.assertIn("没有找到", text)
+        self.assertIn("https://img.example/file/nope.jpg", text)
+
+    def test_original_image_lookup_unknown_probe_still_sends(self):
+        # 探测「说不准」（403/网络异常）不应被当成「图床没有这张图」
+        self.plugin.settings["imgbed"]["domain"] = "https://img.example"
+
+        async def fake_probe(_url):
+            return None
+
+        self.plugin._probe_url_exists = fake_probe
+        event = self.FakeEvent("/原图 风景.jpg")
+        self._run(self.plugin.original_image(event), event)
+
+        caption, image = event.results[0][1]
+        self.assertIn("（原图）", caption)
+        self.assertEqual(
+            image, {"type": "url", "url": "https://img.example/file/%E9%A3%8E%E6%99%AF.jpg"}
+        )
+
+    def test_original_image_lookup_rejects_absolute_name(self):
+        self.plugin.settings["imgbed"]["domain"] = "https://img.example"
+        event = self.FakeEvent("/原图 https://evil.example/x.jpg")
+        self._run(self.plugin.original_image(event), event)
+
+        kind, text = event.results[0]
+        self.assertEqual(kind, "plain")
+        self.assertIn("不像图床里的文件名", text)
+
+    def test_original_image_strips_scaling_parameters(self):
+        # 历史里存的可能是缩放地址，/原图 必须剥离处理参数后再发
+        self.plugin._remember_image(
+            self.FakeEvent(),
+            "https://img.example/file/pic.jpg?width=1920&height=1920&fallback=original",
+        )
+        event = self.FakeEvent("/原图 pic.jpg")
+        self._run(self.plugin.original_image(event), event)
+
+        caption, image = event.results[0][1]
+        self.assertIn("（原图）", caption)
+        self.assertEqual(image, {"type": "url", "url": "https://img.example/file/pic.jpg"})
 
     def test_original_image_isolated_by_session(self):
         self.plugin._remember_image(
@@ -1073,6 +1146,77 @@ class HandlerTests(unittest.TestCase):
         event = self.FakeEvent("/原图", uo="session:B")
         self._run(self.plugin.original_image(event), event)
         self.assertIn("还没有发送过随机图片", event.results[0][1])
+
+
+class ImgbedUrlHelperTests(unittest.TestCase):
+    """_is_imgbed_url / _build_original_url / _build_imgbed_file_url / _classify_probe_status。"""
+
+    def test_is_imgbed_url_recognises_file_and_cdn_cgi_paths(self):
+        self.assertTrue(main._is_imgbed_url("https://img.example/file/a.jpg"))
+        self.assertTrue(
+            main._is_imgbed_url("https://img.example/cdn-cgi/image/width=100/file/a.jpg")
+        )
+        self.assertFalse(main._is_imgbed_url("https://img.example/api/random"))
+        self.assertFalse(main._is_imgbed_url("ftp://img.example/file/a.jpg"))
+        self.assertFalse(main._is_imgbed_url(""))
+
+    def test_build_original_url_strips_query_parameters(self):
+        self.assertEqual(
+            main._build_original_url(
+                "https://img.example/file/a.jpg?width=1920&height=1920&fallback=original"
+            ),
+            "https://img.example/file/a.jpg",
+        )
+
+    def test_build_original_url_keeps_unrelated_query_parameters(self):
+        self.assertEqual(
+            main._build_original_url("https://img.example/file/a.jpg?token=secret&width=100"),
+            "https://img.example/file/a.jpg?token=secret",
+        )
+
+    def test_build_original_url_strips_cdn_cgi_prefix(self):
+        self.assertEqual(
+            main._build_original_url(
+                "https://img.example/cdn-cgi/image/width=1920,quality=85/file/a.jpg"
+            ),
+            "https://img.example/file/a.jpg",
+        )
+
+    def test_build_original_url_requotes_path(self):
+        url = "https://img.example/file/" + quote("10、商务宣传/照片（1）.jpg")
+        self.assertTrue(main._build_original_url(url).startswith("https://img.example/file/"))
+
+    def test_build_original_url_passes_through_foreign_urls(self):
+        self.assertEqual(
+            main._build_original_url("https://cdn.other/a.jpg?x=1"),
+            "https://cdn.other/a.jpg?x=1",
+        )
+
+    def test_build_imgbed_file_url_builds_and_encodes(self):
+        self.assertEqual(
+            main._build_imgbed_file_url("https://img.example/", "dir/a b.jpg"),
+            "https://img.example/file/dir/a%20b.jpg",
+        )
+
+    def test_build_imgbed_file_url_rejects_unsafe_names(self):
+        base = "https://img.example"
+        for name in ("", "/", "..", "../x.jpg", "a//b.jpg", "https://evil.example/x.jpg"):
+            with self.subTest(name=name):
+                self.assertIsNone(main._build_imgbed_file_url(base, name))
+
+    def test_build_imgbed_file_url_rejects_bad_base(self):
+        self.assertIsNone(main._build_imgbed_file_url("", "a.jpg"))
+        self.assertIsNone(main._build_imgbed_file_url("not-a-url", "a.jpg"))
+
+    def test_classify_probe_status_only_404_410_mean_missing(self):
+        self.assertTrue(main._classify_probe_status(200))
+        self.assertTrue(main._classify_probe_status(206))
+        self.assertFalse(main._classify_probe_status(404))
+        self.assertFalse(main._classify_probe_status(410))
+        # 403 防盗链 / 429 限流 / 405 方法不允许都只是「这次没读到」
+        for status in (400, 403, 405, 429, 500, 502, None):
+            with self.subTest(status=status):
+                self.assertIsNone(main._classify_probe_status(status))
 
 
 class OneBotSendTests(unittest.TestCase):
